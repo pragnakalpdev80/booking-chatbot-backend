@@ -1,0 +1,30 @@
+# config/settings/local.py
+"""
+Local development settings.
+Set DJANGO_SETTINGS_MODULE=config.settings.local
+"""
+from dotenv import load_dotenv
+from pathlib import Path
+
+load_dotenv(Path(__file__).resolve().parent.parent.parent / ".env")
+
+from .base import *  # noqa: F401, F403
+
+DEBUG = True
+
+# Allow all hosts in local dev
+ALLOWED_HOSTS = ["*"]
+
+# Allow HTTP for Google OAuth in local dev only
+# WARNING: never set this in production
+import os
+if os.getenv("OAUTHLIB_INSECURE_TRANSPORT") == "1":
+    os.environ["OAUTHLIB_INSECURE_TRANSPORT"] = "1"
+
+# CORS — allow everything in dev
+CORS_ALLOW_ALL_ORIGINS = True
+
+# Use a fast password hasher in tests
+PASSWORD_HASHERS = [
+    "django.contrib.auth.hashers.MD5PasswordHasher",
+]

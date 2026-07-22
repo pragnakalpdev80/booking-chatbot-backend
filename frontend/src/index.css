@@ -1,0 +1,521 @@
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap');
+
+:root {
+  /* Tidio-inspired Chat Brand */
+  --brand-blue: #0066FF;
+  --brand-blue-hover: #0052CC;
+  
+  /* Backgrounds */
+  --bg-app: #F4F6F8; /* Soft ControlHippo gray */
+  --bg-surface: #FFFFFF;
+  
+  /* Text */
+  --text-main: #1D2327;
+  --text-secondary: #5F6368;
+  --text-inverse: #FFFFFF;
+  
+  /* Borders and Shadows */
+  --border-light: #E5E7EB;
+  --shadow-chat: 0 12px 24px rgba(0, 0, 0, 0.08), 0 4px 12px rgba(0, 0, 0, 0.05);
+  --shadow-card: 0 1px 3px rgba(0, 0, 0, 0.05);
+}
+
+* {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+}
+
+body {
+  font-family: 'Inter', sans-serif;
+  background-color: var(--bg-app);
+  color: var(--text-main);
+  height: 100vh;
+  display: flex;
+  justify-content: center;
+  align-items: center;
+}
+
+#root {
+  width: 100%;
+  height: 100%;
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  padding: 1rem;
+}
+
+/* --- Common UI Components --- */
+
+.btn-primary { 
+  background-color: var(--brand-blue); 
+  color: var(--text-inverse); 
+  padding: 0.75rem 1.5rem;
+  border-radius: 6px;
+  border: none;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  font-size: 0.95rem;
+}
+.btn-primary:hover:not(:disabled) { 
+  background-color: var(--brand-blue-hover); 
+}
+.btn-primary:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+/* --- Tidio-style Chat Widget (Mobile Phone Frame) --- */
+
+.chat-container {
+  width: 420px; /* Slightly broader mobile width */
+  height: 812px;
+  max-height: 90vh;
+  background: var(--bg-surface);
+  border-radius: 44px;
+  box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.25);
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  border: 8px solid #1A1A24; /* Phone casing - thinner */
+  position: relative;
+}
+
+/* iPhone Notch */
+.chat-container::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 50%;
+  transform: translateX(-50%);
+  width: 140px;
+  height: 28px;
+  background: #1A1A24;
+  border-bottom-left-radius: 18px;
+  border-bottom-right-radius: 18px;
+  z-index: 100;
+}
+
+.chat-header {
+  background: var(--brand-blue);
+  color: var(--text-inverse);
+  padding: 2.25rem 1.5rem 1.25rem 1.5rem; /* Extra top padding for the notch */
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+}
+
+.chat-header-avatar {
+  position: relative;
+}
+
+.chat-header-avatar img {
+  width: 48px;
+  height: 48px;
+  border-radius: 50%;
+  border: 2px solid rgba(255, 255, 255, 0.2);
+  object-fit: cover;
+}
+
+.chat-header-avatar .status-dot {
+  position: absolute;
+  bottom: 2px;
+  right: 2px;
+  width: 12px;
+  height: 12px;
+  background-color: #00E676;
+  border: 2px solid var(--brand-blue);
+  border-radius: 50%;
+}
+
+.chat-header-info h1 {
+  font-size: 1.15rem;
+  font-weight: 600;
+  line-height: 1.2;
+}
+
+.chat-header-info p {
+  font-size: 0.85rem;
+  color: rgba(255, 255, 255, 0.85);
+  margin-top: 2px;
+}
+
+.messages-area {
+  flex: 1;
+  overflow-y: auto;
+  padding: 1.5rem;
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+  background: #F9FAFC;
+  scroll-behavior: smooth;
+}
+
+.messages-area::-webkit-scrollbar { width: 6px; }
+.messages-area::-webkit-scrollbar-thumb {
+  background: #D1D5DB;
+  border-radius: 10px;
+}
+
+/* --- Input Area --- */
+
+.input-area {
+  padding: 1rem 1.25rem;
+  border-top: 1px solid var(--border-light);
+  display: flex;
+  gap: 0.75rem;
+  background: var(--bg-surface);
+  align-items: center;
+}
+
+.input-area input {
+  flex: 1;
+  background: #F4F6F8;
+  border: 1px solid transparent;
+  border-radius: 8px;
+  padding: 0.75rem 1rem;
+  color: var(--text-main);
+  font-size: 0.95rem;
+  outline: none;
+  transition: border-color 0.2s;
+}
+
+.input-area input:focus {
+  border-color: var(--brand-blue);
+  background: var(--bg-surface);
+}
+
+.send-btn {
+  background: transparent;
+  border: none;
+  width: 40px;
+  height: 40px;
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  cursor: pointer;
+  color: var(--brand-blue);
+  transition: all 0.2s ease;
+  border-radius: 50%;
+}
+
+.send-btn:hover:not(:disabled) {
+  background: #EFF6FF;
+}
+
+.send-btn:disabled {
+  opacity: 0.3;
+  cursor: not-allowed;
+}
+
+.send-btn svg {
+  width: 24px;
+  height: 24px;
+  fill: currentColor;
+}
+
+/* --- Message Bubbles (Tidio Style) --- */
+
+.message-wrapper {
+  display: flex;
+  width: 100%;
+  flex-direction: column;
+  animation: slideUp 0.3s ease forwards;
+  opacity: 0;
+  transform: translateY(10px);
+}
+
+.message-wrapper.user {
+  align-items: flex-end;
+}
+
+.message-wrapper.assistant {
+  align-items: flex-start;
+}
+
+.message-bubble {
+  max-width: 85%;
+  padding: 0.875rem 1.15rem;
+  font-size: 0.95rem;
+  line-height: 1.5;
+  position: relative;
+  word-wrap: break-word;
+  box-shadow: 0 1px 2px rgba(0,0,0,0.03);
+}
+
+/* Assistant Bubble: White, sharp bottom-left */
+.message-wrapper.assistant .message-bubble {
+  background: var(--bg-surface);
+  color: var(--text-main);
+  border: 1px solid var(--border-light);
+  border-radius: 16px 16px 16px 4px;
+}
+
+/* User Bubble: Blue, sharp bottom-right */
+.message-wrapper.user .message-bubble {
+  background: var(--brand-blue);
+  color: var(--text-inverse);
+  border-radius: 16px 16px 4px 16px;
+}
+
+.message-bubble strong { font-weight: 600; }
+.message-wrapper.assistant .message-bubble a { color: var(--brand-blue); text-decoration: underline; }
+.message-wrapper.user .message-bubble a { color: white; text-decoration: underline; }
+
+@keyframes slideUp {
+  to { opacity: 1; transform: translateY(0); }
+}
+
+/* --- Options / Buttons --- */
+
+.chat-option-btn {
+  display: inline-block;
+  background: var(--bg-surface);
+  border: 1px solid var(--brand-blue);
+  color: var(--brand-blue);
+  padding: 0.5rem 1rem;
+  border-radius: 20px;
+  margin-top: 0.5rem;
+  margin-right: 0.5rem;
+  cursor: pointer;
+  font-size: 0.85rem;
+  font-weight: 500;
+  transition: all 0.2s ease;
+}
+
+.chat-option-btn:hover {
+  background: var(--brand-blue);
+  color: white;
+}
+
+/* --- Typing Indicator --- */
+
+.typing-indicator {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 0.875rem 1.15rem;
+  background: var(--bg-surface);
+  border: 1px solid var(--border-light);
+  border-radius: 16px 16px 16px 4px;
+  width: fit-content;
+  box-shadow: 0 1px 2px rgba(0,0,0,0.03);
+}
+
+.typing-dot {
+  width: 6px;
+  height: 6px;
+  background-color: var(--text-secondary);
+  border-radius: 50%;
+  animation: typingBounce 1.4s infinite ease-in-out both;
+}
+.typing-dot:nth-child(1) { animation-delay: -0.32s; }
+.typing-dot:nth-child(2) { animation-delay: -0.16s; }
+
+@keyframes typingBounce {
+  0%, 80%, 100% { transform: scale(0); }
+  40% { transform: scale(1); }
+}
+
+/* --- ControlHippo Dashboard UI --- */
+
+.dashboard-container {
+  width: 100%;
+  height: 100vh;
+  display: flex;
+  background: var(--bg-app);
+}
+
+.dashboard-sidebar {
+  width: 260px;
+  background: var(--bg-surface);
+  border-right: 1px solid var(--border-light);
+  display: flex;
+  flex-direction: column;
+  padding: 1.5rem 1rem;
+}
+
+.dashboard-logo {
+  font-size: 1.25rem;
+  font-weight: 700;
+  color: var(--text-main);
+  padding: 0 0.5rem 2rem 0.5rem;
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.dashboard-nav {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+  flex: 1;
+}
+
+.nav-btn {
+  background: transparent;
+  border: none;
+  color: var(--text-secondary);
+  padding: 0.75rem 1rem;
+  text-align: left;
+  border-radius: 6px;
+  cursor: pointer;
+  font-size: 0.95rem;
+  font-weight: 500;
+  transition: all 0.2s;
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+}
+
+.nav-btn:hover {
+  background: #F4F6F8;
+  color: var(--text-main);
+}
+
+.nav-btn.active {
+  background: #EEF2FF; /* Light indigo/blue */
+  color: var(--brand-blue);
+}
+
+.dashboard-main {
+  flex: 1;
+  overflow-y: auto;
+  padding: 2.5rem;
+}
+
+.dashboard-header {
+  margin-bottom: 2rem;
+}
+.dashboard-header h1 {
+  font-size: 1.5rem;
+  font-weight: 600;
+  color: var(--text-main);
+}
+
+/* Admin Cards */
+.admin-card {
+  background: var(--bg-surface);
+  border: 1px solid var(--border-light);
+  border-radius: 12px;
+  padding: 1.5rem;
+  box-shadow: var(--shadow-card);
+}
+
+.settings-form {
+  display: flex;
+  flex-direction: column;
+  gap: 1.25rem;
+  max-width: 480px;
+}
+
+.form-group {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.form-group label {
+  font-size: 0.85rem;
+  font-weight: 500;
+  color: var(--text-main);
+}
+
+.form-group input {
+  background: var(--bg-surface);
+  border: 1px solid var(--border-light);
+  border-radius: 6px;
+  padding: 0.65rem 0.875rem;
+  color: var(--text-main);
+  outline: none;
+  font-size: 0.95rem;
+  transition: border-color 0.2s;
+}
+
+.form-group input:focus {
+  border-color: var(--brand-blue);
+}
+
+.form-row {
+  display: flex;
+  gap: 1rem;
+}
+.form-row .form-group {
+  flex: 1;
+}
+
+/* Events List */
+.events-list {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
+  gap: 1rem;
+}
+
+.event-card {
+  background: var(--bg-surface);
+  border: 1px solid var(--border-light);
+  padding: 1.25rem;
+  border-radius: 8px;
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.event-card h3 {
+  font-size: 1rem;
+  font-weight: 600;
+  color: var(--text-main);
+}
+
+.event-card p {
+  font-size: 0.85rem;
+  color: var(--text-secondary);
+}
+
+.event-card a {
+  margin-top: 0.5rem;
+  color: var(--brand-blue);
+  text-decoration: none;
+  font-weight: 500;
+  font-size: 0.85rem;
+}
+.event-card a:hover {
+  text-decoration: underline;
+}
+
+/* Login Page specific */
+.login-container {
+  width: 100%;
+  height: 100vh;
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  background: var(--bg-app);
+}
+
+.login-card {
+  width: 100%;
+  max-width: 400px;
+}
+
+.login-card h1 {
+  font-size: 1.5rem;
+  margin-bottom: 0.25rem;
+}
+
+.login-card p {
+  color: var(--text-secondary);
+  font-size: 0.9rem;
+  margin-bottom: 1.5rem;
+}
+
+.error-banner {
+  background: #FEE2E2;
+  border-left: 4px solid #EF4444;
+  color: #B91C1C;
+  padding: 0.75rem 1rem;
+  border-radius: 4px;
+  font-size: 0.875rem;
+  margin-bottom: 1rem;
+}
