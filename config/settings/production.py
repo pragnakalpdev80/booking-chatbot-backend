@@ -5,7 +5,7 @@ Set DJANGO_SETTINGS_MODULE=config.settings.production
 All secrets must come from environment variables — never from a .env file.
 """
 
-from .base import *  # noqa: F401, F403
+from .base import *  # noqa: F401, F403  # NOSONAR
 
 DEBUG = False
 
