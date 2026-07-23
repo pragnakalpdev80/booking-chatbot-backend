@@ -35,7 +35,7 @@ from rest_framework.permissions import AllowAny, IsAdminUser
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
-from .models import Booking, BookingStatus, GoogleCredential, ProviderSettings
+from .models import Booking, BookingStatus, GoogleCredential, ProviderSettings, SlotLock
 from .serializers import (
     AvailableSlotSerializer,
     BookAppointmentSerializer,
@@ -326,11 +326,21 @@ class AvailabilityView(APIView):
                     return False
             return True
 
+        from django.utils.timezone import now
+
+        active_locked_starts = set(
+            SlotLock.objects.filter(
+                slot_start__date=query_date,
+                expires_at__gt=now(),
+                is_confirmed=False,
+            ).values_list("slot_start", flat=True)
+        )
+
         free_slots = []
         current = start_of_day
         while current + slot_delta <= end_of_day:
             slot_end = current + slot_delta
-            if _is_free(current, slot_end):
+            if _is_free(current, slot_end) and current not in active_locked_starts:
                 free_slots.append({"start": current, "end": slot_end})
             current = slot_end
 

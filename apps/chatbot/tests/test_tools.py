@@ -6,11 +6,13 @@ All Google API calls are mocked.
 
 import datetime
 import json
+from datetime import timedelta
 from unittest.mock import MagicMock, patch
 
 import pytest
+from django.utils.timezone import now
 
-from apps.calendar_app.models import Booking, BookingStatus, ProviderSettings
+from apps.calendar_app.models import Booking, BookingStatus, ProviderSettings, SlotLock
 from apps.chatbot.models import ConversationSession
 from apps.chatbot.tools import execute_tool
 
@@ -122,6 +124,12 @@ class TestBookAppointmentTool:
             "id": "new_tool_evt",
             "htmlLink": "",
         }
+        SlotLock.objects.create(
+            session_key=session_with_email.session_key,
+            slot_start="2026-08-04T10:00:00+05:30",
+            slot_end="2026-08-04T10:30:00+05:30",
+            expires_at=now() + timedelta(minutes=15),
+        )
         result = json.loads(
             execute_tool(
                 "book_appointment",
@@ -134,6 +142,12 @@ class TestBookAppointmentTool:
 
     def test_book_end_time_always_30_minutes(self, session_with_email, mock_service):
         mock_service.events().insert().execute.return_value = {"id": "dur_evt", "htmlLink": ""}
+        SlotLock.objects.create(
+            session_key=session_with_email.session_key,
+            slot_start="2026-08-04T09:00:00+05:30",
+            slot_end="2026-08-04T09:30:00+05:30",
+            expires_at=now() + timedelta(minutes=15),
+        )
         execute_tool(
             "book_appointment", {"start_time": "2026-08-04T09:00:00+05:30"}, session_with_email
         )

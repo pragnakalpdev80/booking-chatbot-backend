@@ -16,10 +16,18 @@ import logging
 from datetime import datetime, timedelta
 from zoneinfo import ZoneInfo
 
+from django.db import OperationalError, transaction
+from django.utils.timezone import now
 from googleapiclient.discovery import build
 from googleapiclient.errors import HttpError
 
-from apps.calendar_app.models import Booking, BookingStatus, GoogleCredential, ProviderSettings
+from apps.calendar_app.models import (
+    Booking,
+    BookingStatus,
+    GoogleCredential,
+    ProviderSettings,
+    SlotLock,
+)
 
 from .models import ConversationSession
 
@@ -85,7 +93,7 @@ TOOL_SCHEMAS = [
             "description": (
                 "Book a 30-minute slot on the calendar for the user. "
                 "ALWAYS obtain explicit user confirmation before calling. "
-                "The slot MUST be verified via get_available_slots first. "
+                "The user MUST have successfully locked the slot via lock_slot first. "
                 "The user's email MUST already be saved in the session."
             ),
             "parameters": {
@@ -101,6 +109,53 @@ TOOL_SCHEMAS = [
                     "reason": {
                         "type": "string",
                         "description": "Reason for the appointment.",
+                    },
+                },
+                "required": ["start_time"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "lock_slot",
+            "description": (
+                "Temporarily lock a 30-minute time slot for the user for 15 minutes. "
+                "Call this IMMEDIATELY when the user selects a time, BEFORE asking them "
+                "to confirm the booking or provide a reason."
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "start_time": {
+                        "type": "string",
+                        "description": (
+                            "ISO 8601 datetime string with timezone offset "
+                            "(e.g. '2026-07-25T10:00:00+05:30')."
+                        ),
+                    },
+                },
+                "required": ["start_time"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "release_slot",
+            "description": (
+                "Release a previously locked time slot. "
+                "Call this if the user changes their mind and wants to pick a different time."
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "start_time": {
+                        "type": "string",
+                        "description": (
+                            "ISO 8601 datetime string with timezone offset "
+                            "(e.g. '2026-07-25T10:00:00+05:30')."
+                        ),
                     },
                 },
                 "required": ["start_time"],
@@ -216,6 +271,10 @@ def execute_tool(tool_name: str, tool_args: dict, session: ConversationSession) 
     try:
         if tool_name == "save_session_email":
             return _save_session_email(session, **tool_args)
+        elif tool_name == "lock_slot":
+            return _lock_slot(session, **tool_args)
+        elif tool_name == "release_slot":
+            return _release_slot(session, **tool_args)
         elif tool_name == "get_available_slots":
             return _get_available_slots(session, **tool_args)
         elif tool_name == "book_appointment":
@@ -267,6 +326,103 @@ def _save_session_email(session: ConversationSession, email: str) -> str:
     return json.dumps({"status": "email_saved", "email": session.user_email})
 
 
+def _lock_slot(session: ConversationSession, start_time: str) -> str:
+    """Temporarily reserve a slot to prevent concurrent bookings."""
+    logger.debug("Tool: lock_slot — session %s, start %s", session.session_key, start_time)
+
+    try:
+        start_dt = datetime.fromisoformat(start_time)
+    except ValueError:
+        return json.dumps({"error": f"Invalid start_time format: {start_time}. Use ISO 8601."})
+
+    if start_dt <= now():
+        return json.dumps({"error": "Cannot lock a time slot in the past."})
+
+    end_dt = start_dt + timedelta(minutes=SLOT_DURATION_MINUTES)
+
+    # First, verify freebusy on Google Calendar to ensure it's actually free
+    service = _get_service()
+    if not _check_freebusy(service, start_dt, end_dt):
+        return json.dumps(
+            {
+                "error": "This slot is no longer available on the calendar. "
+                "Please choose another time."
+            }
+        )
+
+    try:
+        with transaction.atomic():
+            # Release any existing active locks held by this session (so they don't hold
+            # multiple slots)
+            SlotLock.objects.filter(session_key=session.session_key, is_confirmed=False).delete()
+
+            # Delete any expired, unconfirmed locks for this specific slot to satisfy the
+            # UniqueConstraint
+            SlotLock.objects.filter(
+                slot_start=start_dt, expires_at__lte=now(), is_confirmed=False
+            ).delete()
+
+            # Try to acquire a lock, ensuring no one else holds an active lock
+            existing = (
+                SlotLock.objects.select_for_update(nowait=True)
+                .filter(slot_start=start_dt, is_confirmed=False)
+                .first()
+            )
+
+            if existing:
+                return json.dumps(
+                    {
+                        "error": "This slot is currently being booked by someone else. "
+                        "Please select another time."
+                    }
+                )
+
+            lock = SlotLock.objects.create(
+                session_key=session.session_key,
+                slot_start=start_dt,
+                slot_end=end_dt,
+                expires_at=now() + timedelta(minutes=15),
+            )
+
+    except OperationalError:
+        # DB row lock could not be acquired because another transaction is currently
+        # touching this slot's locks
+        return json.dumps(
+            {
+                "error": "This slot is currently being booked by someone else. "
+                "Please select another time."
+            }
+        )
+
+    return json.dumps(
+        {
+            "status": "locked",
+            "expires_at": lock.expires_at.isoformat(),
+            "message": "Slot successfully locked for 15 minutes. "
+            "Please proceed to ask the user to confirm.",
+        }
+    )
+
+
+def _release_slot(session: ConversationSession, start_time: str) -> str:
+    """Release a locked slot if the user changes their mind."""
+    logger.debug("Tool: release_slot — session %s, start %s", session.session_key, start_time)
+
+    try:
+        start_dt = datetime.fromisoformat(start_time)
+    except ValueError:
+        return json.dumps({"error": f"Invalid start_time format: {start_time}."})
+
+    deleted, _ = SlotLock.objects.filter(
+        session_key=session.session_key, slot_start=start_dt, is_confirmed=False
+    ).delete()
+
+    if deleted:
+        return json.dumps({"status": "released", "message": "Slot lock released."})
+    else:
+        return json.dumps({"status": "ignored", "message": "No active lock found for this slot."})
+
+
 def _get_available_slots(session: ConversationSession, date: str) -> str:
     logger.debug("Tool: get_available_slots — session %s, date %s", session.session_key, date)
     ps = ProviderSettings.get_instance()
@@ -307,17 +463,33 @@ def _get_available_slots(session: ConversationSession, date: str) -> str:
 
     busy_intervals = freebusy_result.get("calendars", {}).get("primary", {}).get("busy", [])
 
-    now = datetime.now(tz=tz)
+    # Get active locks held by OTHER sessions
+    active_locked_starts = set(
+        SlotLock.objects.filter(
+            slot_start__date=query_date,
+            expires_at__gt=now(),
+            is_confirmed=False,
+        )
+        .exclude(session_key=session.session_key)
+        .values_list("slot_start", flat=True)
+    )
+
+    now_tz = datetime.now(tz=tz)
     slots = []
     current = start_of_day
     while current + slot_delta <= end_of_day:
         slot_end = current + slot_delta
-        # Only offer slots that are in the future
-        if current >= now and _is_slot_free(busy_intervals, current, slot_end):
+        # Only offer slots that are in the future, free on Google Calendar, and not locked
+        # by someone else
+        if (
+            current >= now_tz
+            and _is_slot_free(busy_intervals, current, slot_end)
+            and current not in active_locked_starts
+        ):
             slots.append({"start": current.isoformat(), "end": slot_end.isoformat()})
         current = slot_end
 
-    message = _build_no_slots_message(end_of_day, now) if not slots else ""
+    message = _build_no_slots_message(end_of_day, now_tz) if not slots else ""
 
     return json.dumps(
         {
@@ -344,11 +516,28 @@ def _book_appointment(session: ConversationSession, start_time: str, reason: str
     except ValueError:
         return json.dumps({"error": f"Invalid start_time format: {start_time}. Use ISO 8601."})
 
+    # Validate that this session holds an active lock for this slot
+    lock = SlotLock.objects.filter(
+        session_key=session.session_key,
+        slot_start=start_dt,
+        expires_at__gt=now(),
+        is_confirmed=False,
+    ).first()
+
+    if not lock:
+        return json.dumps(
+            {
+                "error": "Your reservation for this slot has expired or you haven't "
+                "locked it yet. Please pick a time again."
+            }
+        )
+
     # Enforce 30-min duration always
     end_dt = start_dt + timedelta(minutes=SLOT_DURATION_MINUTES)
 
     service = _get_service()
     if not _check_freebusy(service, start_dt, end_dt):
+        lock.delete()
         return json.dumps({"error": "The slot is no longer available. Please pick another time."})
 
     ps = ProviderSettings.get_instance()
@@ -360,18 +549,31 @@ def _book_appointment(session: ConversationSession, start_time: str, reason: str
         "attendees": [{"email": email}],
     }
 
-    created_event = service.events().insert(calendarId="primary", body=event_body).execute()
-    logger.debug("Google API insert event result: %s", json.dumps(created_event))
-    google_event_id = created_event["id"]
+    try:
+        created_event = service.events().insert(calendarId="primary", body=event_body).execute()
+        logger.debug("Google API insert event result: %s", json.dumps(created_event))
+        google_event_id = created_event["id"]
 
-    Booking.objects.create(
-        email=email,
-        google_event_id=google_event_id,
-        start_time=start_dt,
-        end_time=end_dt,
-        reason=reason,
-        status=BookingStatus.CONFIRMED,
-    )
+        with transaction.atomic():
+            Booking.objects.create(
+                email=email,
+                google_event_id=google_event_id,
+                start_time=start_dt,
+                end_time=end_dt,
+                reason=reason,
+                status=BookingStatus.CONFIRMED,
+            )
+            # Mark the lock as confirmed so it's ignored going forward
+            lock.is_confirmed = True
+            lock.save(update_fields=["is_confirmed"])
+
+    except Exception as e:
+        logger.exception("Failed to book appointment or create record: %s", e)
+        lock.delete()
+        return json.dumps(
+            {"error": "Failed to create booking on Google Calendar. Please try again."}
+        )
+
     logger.info("Chatbot booked: email=%s event=%s", email, google_event_id)
 
     return json.dumps(

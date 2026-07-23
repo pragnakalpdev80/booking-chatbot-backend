@@ -9,6 +9,8 @@ import os
 from datetime import timedelta
 from pathlib import Path
 
+from celery.schedules import crontab
+
 with contextlib.suppress(ImportError):
     import django_stubs_ext  # noqa: F401 — silences mypy stubs warning if present
 
@@ -157,6 +159,13 @@ CELERY_BROKER_URL = os.getenv("CELERY_BROKER_URL", "redis://localhost:6379/0")
 CELERY_RESULT_BACKEND = os.getenv("CELERY_RESULT_BACKEND", "redis://localhost:6379/0")
 CELERY_ACCEPT_CONTENT = ["json"]
 CELERY_TASK_SERIALIZER = "json"
+
+CELERY_BEAT_SCHEDULE = {
+    "cleanup_expired_locks": {
+        "task": "apps.calendar_app.tasks.cleanup_expired_locks",
+        "schedule": crontab(minute="*/5"),
+    },
+}
 
 # ─── Logging ─────────────────────────────────────────────────────────────────
 LOGGING = {

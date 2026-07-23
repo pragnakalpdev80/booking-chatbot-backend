@@ -1,7 +1,7 @@
 # calendar_app/admin.py
 from django.contrib import admin
 
-from .models import Booking, GoogleCredential, ProviderSettings
+from .models import Booking, GoogleCredential, ProviderSettings, SlotLock
 
 
 @admin.register(GoogleCredential)
@@ -38,3 +38,19 @@ class BookingAdmin(admin.ModelAdmin):
     search_fields = ["email", "name", "google_event_id", "reason"]
     readonly_fields = ["google_event_id", "created_at", "updated_at"]
     ordering = ["-start_time"]
+
+
+@admin.register(SlotLock)
+class SlotLockAdmin(admin.ModelAdmin):
+    list_display = [
+        "slot_start",
+        "slot_end",
+        "session_key",
+        "expires_at",
+        "locked_at",
+        "is_confirmed",
+    ]
+    list_filter = ["is_confirmed"]
+    search_fields = ["session_key"]
+    readonly_fields = ["locked_at"]
+    ordering = ["-locked_at"]

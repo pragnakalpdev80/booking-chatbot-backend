@@ -113,3 +113,19 @@ def task_cancel_event(self, event_id: str) -> None:
             "task_cancel_event: non-retryable HttpError %s for event %s", exc, event_id
         )
         raise
+
+
+@shared_task
+def cleanup_expired_locks() -> None:
+    """
+    Delete expired, unconfirmed SlotLock records.
+    Runs periodically via Celery Beat.
+    """
+    from django.utils.timezone import now
+
+    from .models import SlotLock
+
+    deleted_count, _ = SlotLock.objects.filter(expires_at__lte=now(), is_confirmed=False).delete()
+
+    if deleted_count > 0:
+        logger.info("cleanup_expired_locks: deleted %d expired lock(s).", deleted_count)

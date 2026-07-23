@@ -228,3 +228,47 @@ class Booking(models.Model):
 
     def __str__(self) -> str:
         return f"Booking(email={self.email}, event={self.google_event_id}, status={self.status})"
+
+
+# ─── SlotLock ─────────────────────────────────────────────────────────────────
+
+
+class SlotLock(models.Model):
+    """
+    Temporary lock for a specific 30-minute time slot.
+    Ensures that only one user can attempt to book a given slot at a time.
+    Locks automatically expire after a set duration (e.g., 15 minutes).
+    """
+
+    # We use a soft reference to the session UUID string because calendar_app
+    # doesn't depend on chatbot app (avoiding circular dependency).
+    session_key = models.UUIDField(
+        db_index=True,
+        null=True,
+        blank=True,
+        help_text="The session key that holds this lock.",
+    )
+    slot_start = models.DateTimeField(db_index=True)
+    slot_end = models.DateTimeField()
+    expires_at = models.DateTimeField(db_index=True)
+    locked_at = models.DateTimeField(auto_now_add=True)
+    is_confirmed = models.BooleanField(
+        default=False,
+        db_index=True,
+        help_text="True if the user successfully booked this slot. The lock is then ignored.",
+    )
+
+    class Meta:
+        verbose_name = "Slot Lock"
+        verbose_name_plural = "Slot Locks"
+        ordering = ["-locked_at"]
+        constraints = [
+            models.UniqueConstraint(
+                fields=["slot_start"],
+                condition=models.Q(is_confirmed=False),
+                name="unique_active_slot_lock",
+            )
+        ]
+
+    def __str__(self) -> str:
+        return f"SlotLock(start={self.slot_start}, session={self.session_key})"
