@@ -2,7 +2,6 @@
 """
 Serializers for Google Calendar events, ProviderSettings, and anonymous Booking records.
 """
-from datetime import timedelta
 
 from rest_framework import serializers
 
@@ -79,6 +78,7 @@ class BookAppointmentSerializer(serializers.Serializer):
     def validate_start_time(self, value):
         """Reject bookings in the past."""
         from django.utils import timezone
+
         if value < timezone.now():
             raise serializers.ValidationError("Cannot book a slot in the past.")
         return value
@@ -92,6 +92,7 @@ class RescheduleSerializer(serializers.Serializer):
 
     def validate_new_start_time(self, value):
         from django.utils import timezone
+
         if value < timezone.now():
             raise serializers.ValidationError("Cannot reschedule to a slot in the past.")
         return value

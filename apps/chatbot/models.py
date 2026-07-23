@@ -7,6 +7,7 @@ ConversationSession — one per anonymous chat thread (UUID session_key)
                       conversational state (intent, pending_slot).
 Message             — each turn (user / assistant / tool) stored in DB
 """
+
 import uuid
 
 from django.db import models

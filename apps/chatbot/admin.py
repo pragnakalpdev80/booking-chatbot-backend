@@ -15,7 +15,11 @@ class MessageInline(admin.TabularInline):
 @admin.register(ConversationSession)
 class ConversationSessionAdmin(admin.ModelAdmin):
     list_display = [
-        "session_key", "user_email", "intent", "created_at", "updated_at",
+        "session_key",
+        "user_email",
+        "intent",
+        "created_at",
+        "updated_at",
     ]
     search_fields = ["session_key", "user_email"]
     list_filter = ["intent"]

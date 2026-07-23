@@ -10,6 +10,7 @@ Six tools are available:
   5. cancel_appointment    — cancel a booking
   6. list_my_appointments  — list bookings for an email
 """
+
 import json
 import logging
 from datetime import datetime, timedelta
@@ -19,6 +20,7 @@ from googleapiclient.discovery import build
 from googleapiclient.errors import HttpError
 
 from apps.calendar_app.models import Booking, BookingStatus, GoogleCredential, ProviderSettings
+
 from .models import ConversationSession
 
 logger = logging.getLogger(__name__)
@@ -64,7 +66,9 @@ TOOL_SCHEMAS = [
                 "properties": {
                     "date": {
                         "type": "string",
-                        "description": "The date to check in YYYY-MM-DD format (e.g. '2026-07-25').",
+                        "description": (
+                            "The date to check in YYYY-MM-DD format (e.g. '2026-07-25')."
+                        ),
                     },
                 },
                 "required": ["date"],
@@ -86,7 +90,10 @@ TOOL_SCHEMAS = [
                 "properties": {
                     "start_time": {
                         "type": "string",
-                        "description": "ISO 8601 datetime string with timezone offset (e.g. '2026-07-25T10:00:00+05:30').",
+                        "description": (
+                            "ISO 8601 datetime string with timezone offset "
+                            "(e.g. '2026-07-25T10:00:00+05:30')."
+                        ),
                     },
                     "reason": {
                         "type": "string",
@@ -111,7 +118,9 @@ TOOL_SCHEMAS = [
                 "properties": {
                     "event_id": {
                         "type": "string",
-                        "description": "The Google Calendar event ID of the appointment to reschedule.",
+                        "description": (
+                            "The Google Calendar event ID of the appointment to reschedule."
+                        ),
                     },
                     "new_start_time": {
                         "type": "string",
@@ -156,7 +165,10 @@ TOOL_SCHEMAS = [
                     },
                     "end_date": {
                         "type": "string",
-                        "description": "Filter up to this date (YYYY-MM-DD). Defaults to 30 days from start_date.",
+                        "description": (
+                            "Filter up to this date (YYYY-MM-DD). "
+                            "Defaults to 30 days from start_date."
+                        ),
                     },
                 },
                 "required": [],
@@ -168,6 +180,7 @@ TOOL_SCHEMAS = [
 
 # ─── Tool executor ────────────────────────────────────────────────────────────
 
+
 def _get_service():
     try:
         credential = GoogleCredential.objects.select_related("user").get()
@@ -175,7 +188,7 @@ def _get_service():
         raise ValueError(
             "The administrator has not linked their Google Calendar yet. "
             "Tell the user that the booking service is currently unavailable."
-        )
+        ) from None
     creds = credential.get_credentials()
     return build("calendar", "v3", credentials=creds)
 
@@ -219,6 +232,7 @@ def execute_tool(tool_name: str, tool_args: dict, session: ConversationSession) 
 
 # ─── Individual tool implementations ─────────────────────────────────────────
 
+
 def _save_session_email(session: ConversationSession, email: str) -> str:
     """Persist the provided email to the session row immediately."""
     logger.debug("Tool: save_session_email — session %s, email %s", session.session_key, email)
@@ -240,23 +254,29 @@ def _get_available_slots(session: ConversationSession, date: str) -> str:
 
     # Enforce Mon–Fri
     if query_date.weekday() not in (ps.work_days or [0, 1, 2, 3, 4]):
-        return json.dumps({
-            "available_slots": [],
-            "message": "Appointments are only available Monday to Friday.",
-        })
+        return json.dumps(
+            {
+                "available_slots": [],
+                "message": "Appointments are only available Monday to Friday.",
+            }
+        )
 
     start_of_day = datetime.combine(query_date, ps.work_start, tzinfo=tz)
     end_of_day = datetime.combine(query_date, ps.work_end, tzinfo=tz)
     slot_delta = timedelta(minutes=SLOT_DURATION_MINUTES)
 
     service = _get_service()
-    freebusy_result = service.freebusy().query(
-        body={
-            "timeMin": start_of_day.isoformat(),
-            "timeMax": end_of_day.isoformat(),
-            "items": [{"id": "primary"}],
-        }
-    ).execute()
+    freebusy_result = (
+        service.freebusy()
+        .query(
+            body={
+                "timeMin": start_of_day.isoformat(),
+                "timeMax": end_of_day.isoformat(),
+                "items": [{"id": "primary"}],
+            }
+        )
+        .execute()
+    )
     logger.debug("Google API freebusy result: %s", json.dumps(freebusy_result))
 
     busy_intervals = freebusy_result.get("calendars", {}).get("primary", {}).get("busy", [])
@@ -282,29 +302,37 @@ def _get_available_slots(session: ConversationSession, date: str) -> str:
     message = ""
     if len(slots) == 0:
         if end_of_day <= now:
-            message = "The working hours for this date have already passed. Please ask the user to select a future date."
+            message = (
+                "The working hours for this date have already passed. "
+                "Please ask the user to select a future date."
+            )
         else:
-            message = "All available slots for this date are fully booked. Please ask the user to select another date."
+            message = (
+                "All available slots for this date are fully booked. "
+                "Please ask the user to select another date."
+            )
 
-    return json.dumps({
-        "date": date,
-        "day_of_week": query_date.strftime("%A"),
-        "timezone": ps.timezone,
-        "slot_duration_minutes": SLOT_DURATION_MINUTES,
-        "available_slots": slots,
-        "count": len(slots),
-        "message": message,
-    })
+    return json.dumps(
+        {
+            "date": date,
+            "day_of_week": query_date.strftime("%A"),
+            "timezone": ps.timezone,
+            "slot_duration_minutes": SLOT_DURATION_MINUTES,
+            "available_slots": slots,
+            "count": len(slots),
+            "message": message,
+        }
+    )
 
 
-def _book_appointment(
-    session: ConversationSession, start_time: str, reason: str = ""
-) -> str:
+def _book_appointment(session: ConversationSession, start_time: str, reason: str = "") -> str:
     logger.debug("Tool: book_appointment — session %s, start %s", session.session_key, start_time)
 
     email = session.user_email
     if not email:
-        return json.dumps({"error": "Email not collected yet. Please ask the user for their email first."})
+        return json.dumps(
+            {"error": "Email not collected yet. Please ask the user for their email first."}
+        )
 
     try:
         start_dt = datetime.fromisoformat(start_time)
@@ -341,30 +369,38 @@ def _book_appointment(
     )
     logger.info("Chatbot booked: email=%s event=%s", email, google_event_id)
 
-    return json.dumps({
-        "status": "confirmed",
-        "google_event_id": google_event_id,
-        "html_link": created_event.get("htmlLink", ""),
-        "start_time": start_dt.isoformat(),
-        "end_time": end_dt.isoformat(),
-        "email": email,
-        "reason": reason,
-    })
+    return json.dumps(
+        {
+            "status": "confirmed",
+            "google_event_id": google_event_id,
+            "html_link": created_event.get("htmlLink", ""),
+            "start_time": start_dt.isoformat(),
+            "end_time": end_dt.isoformat(),
+            "email": email,
+            "reason": reason,
+        }
+    )
 
 
 def _reschedule_appointment(
     session: ConversationSession, event_id: str, new_start_time: str
 ) -> str:
-    logger.debug("Tool: reschedule_appointment — session %s, event %s", session.session_key, event_id)
+    logger.debug(
+        "Tool: reschedule_appointment — session %s, event %s", session.session_key, event_id
+    )
 
     email = session.user_email
     if not email:
-        return json.dumps({"error": "Email not collected yet. Please ask the user for their email first."})
+        return json.dumps(
+            {"error": "Email not collected yet. Please ask the user for their email first."}
+        )
 
     try:
         booking = Booking.objects.get(google_event_id=event_id, email=email)
     except Booking.DoesNotExist:
-        return json.dumps({"error": f"No booking found with event ID {event_id} for email {email}."})
+        return json.dumps(
+            {"error": f"No booking found with event ID {event_id} for email {email}."}
+        )
 
     try:
         new_start = datetime.fromisoformat(new_start_time)
@@ -383,9 +419,9 @@ def _reschedule_appointment(
         "end": {"dateTime": new_end.isoformat(), "timeZone": ps.timezone},
     }
 
-    updated_event = service.events().patch(
-        calendarId="primary", eventId=event_id, body=patch_body
-    ).execute()
+    updated_event = (
+        service.events().patch(calendarId="primary", eventId=event_id, body=patch_body).execute()
+    )
     logger.debug("Google API patch event result: %s", json.dumps(updated_event))
 
     booking.start_time = new_start
@@ -395,13 +431,15 @@ def _reschedule_appointment(
 
     logger.info("Chatbot rescheduled: email=%s event=%s -> %s", email, event_id, new_start_time)
 
-    return json.dumps({
-        "status": "rescheduled",
-        "google_event_id": event_id,
-        "new_start_time": new_start.isoformat(),
-        "new_end_time": new_end.isoformat(),
-        "html_link": updated_event.get("htmlLink", ""),
-    })
+    return json.dumps(
+        {
+            "status": "rescheduled",
+            "google_event_id": event_id,
+            "new_start_time": new_start.isoformat(),
+            "new_end_time": new_end.isoformat(),
+            "html_link": updated_event.get("htmlLink", ""),
+        }
+    )
 
 
 def _cancel_appointment(session: ConversationSession, event_id: str) -> str:
@@ -409,12 +447,16 @@ def _cancel_appointment(session: ConversationSession, event_id: str) -> str:
 
     email = session.user_email
     if not email:
-        return json.dumps({"error": "Email not collected yet. Please ask the user for their email first."})
+        return json.dumps(
+            {"error": "Email not collected yet. Please ask the user for their email first."}
+        )
 
     try:
         booking = Booking.objects.get(google_event_id=event_id, email=email)
     except Booking.DoesNotExist:
-        return json.dumps({"error": f"No booking found with event ID {event_id} for email {email}."})
+        return json.dumps(
+            {"error": f"No booking found with event ID {event_id} for email {email}."}
+        )
 
     service = _get_service()
     try:
@@ -440,9 +482,12 @@ def _list_my_appointments(
 
     email = session.user_email
     if not email:
-        return json.dumps({"error": "Email not collected yet. Please ask the user for their email first."})
+        return json.dumps(
+            {"error": "Email not collected yet. Please ask the user for their email first."}
+        )
 
     from datetime import date as date_type
+
     today = date_type.today()
 
     if start_date:
@@ -461,11 +506,15 @@ def _list_my_appointments(
     else:
         end = start + timedelta(days=30)
 
-    bookings = Booking.objects.filter(
-        email=email,
-        start_time__date__gte=start,
-        start_time__date__lte=end,
-    ).exclude(status=BookingStatus.CANCELLED).order_by("start_time")
+    bookings = (
+        Booking.objects.filter(
+            email=email,
+            start_time__date__gte=start,
+            start_time__date__lte=end,
+        )
+        .exclude(status=BookingStatus.CANCELLED)
+        .order_by("start_time")
+    )
 
     ps = ProviderSettings.get_instance()
     tz = ZoneInfo(ps.timezone)
@@ -482,11 +531,13 @@ def _list_my_appointments(
         for b in bookings
     ]
 
-    return json.dumps({
-        "email": email,
-        "timezone": ps.timezone,
-        "from": str(start),
-        "to": str(end),
-        "appointments": result,
-        "count": len(result),
-    })
+    return json.dumps(
+        {
+            "email": email,
+            "timezone": ps.timezone,
+            "from": str(start),
+            "to": str(end),
+            "appointments": result,
+            "count": len(result),
+        }
+    )

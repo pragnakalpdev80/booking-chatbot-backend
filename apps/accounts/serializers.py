@@ -2,6 +2,7 @@
 """
 Serializers for user registration, profile retrieval, and JWT token responses.
 """
+
 from django.contrib.auth.models import User
 from django.contrib.auth.password_validation import validate_password
 from rest_framework import serializers
@@ -53,7 +54,7 @@ class RegisterSerializer(serializers.ModelSerializer):
 
     def validate(self, attrs):
         if attrs["password"] != attrs.pop("password2"):
-            raise serializers.ValidationError({"password": "Passwords do not match."})
+            raise serializers.ValidationError({"password": "Passwords do not match."})  # nosec B105
         return attrs
 
     def create(self, validated_data):

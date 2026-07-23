@@ -5,7 +5,7 @@ Celery tasks for async Google Calendar write operations.
 All tasks use exponential backoff retry on HttpError 429/503.
 Read operations (events.list, freebusy) are NOT routed through Celery.
 """
-import json
+
 import logging
 
 from celery import shared_task
@@ -45,12 +45,14 @@ def task_insert_event(self, event_body: dict) -> dict:
         return event
     except HttpError as exc:
         if exc.resp.status in RETRYABLE_STATUS_CODES:
-            delay = (2 ** self.request.retries) * 10
+            delay = (2**self.request.retries) * 10
             logger.warning(
                 "task_insert_event: retryable error %s (attempt %d), retrying in %ds",
-                exc.resp.status, self.request.retries + 1, delay,
+                exc.resp.status,
+                self.request.retries + 1,
+                delay,
             )
-            raise self.retry(exc=exc, countdown=delay)
+            raise self.retry(exc=exc, countdown=delay) from exc
         logger.error("task_insert_event: non-retryable HttpError %s", exc)
         raise
 
@@ -62,19 +64,23 @@ def task_patch_event(self, event_id: str, patch_body: dict) -> dict:
     """
     try:
         service = _get_service()
-        event = service.events().patch(
-            calendarId="primary", eventId=event_id, body=patch_body
-        ).execute()
+        event = (
+            service.events()
+            .patch(calendarId="primary", eventId=event_id, body=patch_body)
+            .execute()
+        )
         logger.info("task_patch_event: patched event %s", event_id)
         return event
     except HttpError as exc:
         if exc.resp.status in RETRYABLE_STATUS_CODES:
-            delay = (2 ** self.request.retries) * 10
+            delay = (2**self.request.retries) * 10
             logger.warning(
                 "task_patch_event: retryable error %s (attempt %d), retrying in %ds",
-                exc.resp.status, self.request.retries + 1, delay,
+                exc.resp.status,
+                self.request.retries + 1,
+                delay,
             )
-            raise self.retry(exc=exc, countdown=delay)
+            raise self.retry(exc=exc, countdown=delay) from exc
         logger.error("task_patch_event: non-retryable HttpError %s for event %s", exc, event_id)
         raise
 
@@ -95,11 +101,13 @@ def task_cancel_event(self, event_id: str) -> None:
             logger.info("task_cancel_event: event %s already gone (410)", event_id)
             return
         if exc.resp.status in RETRYABLE_STATUS_CODES:
-            delay = (2 ** self.request.retries) * 10
+            delay = (2**self.request.retries) * 10
             logger.warning(
                 "task_cancel_event: retryable error %s (attempt %d), retrying in %ds",
-                exc.resp.status, self.request.retries + 1, delay,
+                exc.resp.status,
+                self.request.retries + 1,
+                delay,
             )
-            raise self.retry(exc=exc, countdown=delay)
+            raise self.retry(exc=exc, countdown=delay) from exc
         logger.error("task_cancel_event: non-retryable HttpError %s for event %s", exc, event_id)
         raise

@@ -1,0 +1,75 @@
+[project]
+name = "calendar-chatbot"
+version = "1.0.0"
+description = "Calendar Chatbot Backend"
+requires-python = ">=3.12"
+
+# --------------------------------------------------------------------------- #
+# Ruff: linting + formatting (single tool, black-compatible)
+# --------------------------------------------------------------------------- #
+[tool.ruff]
+line-length = 100
+target-version = "py312"
+extend-exclude = ["migrations", "venv", ".venv", "../venv"]
+
+[tool.ruff.lint]
+select = [
+    "E",    # pycodestyle errors
+    "F",    # pyflakes
+    "I",    # isort
+    "UP",   # pyupgrade
+    "B",    # flake8-bugbear
+    "DJ",   # flake8-django
+    "C4",   # flake8-comprehensions
+    "SIM",  # flake8-simplify
+]
+ignore = []
+
+[tool.ruff.lint.isort]
+known-first-party = ["config", "apps"]
+
+[tool.ruff.format]
+quote-style = "double"
+
+# --------------------------------------------------------------------------- #
+# mypy: gradual typing
+# --------------------------------------------------------------------------- #
+[tool.mypy]
+python_version = "3.12"
+plugins = ["mypy_django_plugin.main"]
+ignore_missing_imports = true
+warn_unused_ignores = true
+exclude = "(migrations|venv|\\.venv|../venv)"
+
+[[tool.mypy.overrides]]
+module = ["config.*"]
+disallow_untyped_defs = true
+
+[tool.django-stubs]
+django_settings_module = "config.settings.local"
+
+# --------------------------------------------------------------------------- #
+# pytest + coverage
+# --------------------------------------------------------------------------- #
+[tool.pytest.ini_options]
+DJANGO_SETTINGS_MODULE = "config.settings.local"
+python_files = ["test_*.py", "tests.py", "*_tests.py"]
+addopts = "--cov=apps --cov-report=term-missing -v"
+testpaths = ["apps", "tests"]
+
+[tool.coverage.run]
+omit = [
+    "*/migrations/*",
+    "*/tests/*",
+    "manage.py",
+    "config/asgi.py",
+    "config/wsgi.py",
+    "config/schema.py",
+]
+
+# --------------------------------------------------------------------------- #
+# bandit: static security analysis
+# --------------------------------------------------------------------------- #
+[tool.bandit]
+exclude_dirs = ["venv", ".venv", "../venv", "migrations", "tests"]
+skips = ["B101"]

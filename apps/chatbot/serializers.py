@@ -17,8 +17,12 @@ class ConversationSessionSerializer(serializers.ModelSerializer):
     class Meta:
         model = ConversationSession
         fields = [
-            "id", "session_key", "user_email",
-            "created_at", "updated_at", "message_count",
+            "id",
+            "session_key",
+            "user_email",
+            "created_at",
+            "updated_at",
+            "message_count",
         ]
         read_only_fields = fields
 

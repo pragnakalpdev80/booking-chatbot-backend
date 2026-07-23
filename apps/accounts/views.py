@@ -6,6 +6,7 @@ User auth endpoints:
   POST /api/accounts/token/refresh/     — refresh JWT (delegated to simplejwt)
   GET  /api/accounts/me/                — retrieve own profile
 """
+
 import logging
 
 from rest_framework import status
@@ -22,7 +23,7 @@ class RegisterView(APIView):
     """Public endpoint — allows any unauthenticated request."""
 
     permission_classes = [AllowAny]
-    authentication_classes = []
+    authentication_classes: list = []
 
     def post(self, request):
         logger.debug("RegisterView POST received data: %s", request.data.keys())

@@ -10,6 +10,7 @@ POST   /api/chat/message/                        — send a message; receive AI 
 GET    /api/chat/sessions/<session_key>/messages/ — retrieve session history
 DELETE /api/chat/sessions/<session_key>/          — delete/end a session
 """
+
 import logging
 
 from rest_framework import status
@@ -98,11 +99,13 @@ class SessionHistoryView(APIView):
 
         # Exclude internal tool messages — only show user and assistant turns
         messages = session.messages.exclude(role="tool").order_by("timestamp")
-        return Response({
-            "session_key": str(session.session_key),
-            "user_email": session.user_email or None,
-            "messages": MessageSerializer(messages, many=True).data,
-        })
+        return Response(
+            {
+                "session_key": str(session.session_key),
+                "user_email": session.user_email or None,
+                "messages": MessageSerializer(messages, many=True).data,
+            }
+        )
 
 
 class DeleteSessionView(APIView):

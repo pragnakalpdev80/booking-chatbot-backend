@@ -8,10 +8,10 @@ Booking           — lightweight reference table linking an anonymous user (ema
                     Calendar event ID. Google Calendar is the source of truth for event details;
                     this model only tracks the reference + status.
 """
+
+import datetime
 import json
 import logging
-import datetime
-from datetime import timedelta
 
 from cryptography.fernet import Fernet
 from django.conf import settings
@@ -25,6 +25,7 @@ logger = logging.getLogger(__name__)
 
 
 # ─── Encryption helpers ───────────────────────────────────────────────────────
+
 
 def _fernet() -> Fernet:
     """Return a Fernet instance using the FERNET_KEY from settings."""
@@ -43,6 +44,7 @@ def decrypt_token(ciphertext: str) -> str:
 
 
 # ─── GoogleCredential ─────────────────────────────────────────────────────────
+
 
 class GoogleCredential(models.Model):
     """
@@ -90,16 +92,17 @@ class GoogleCredential(models.Model):
         creds = Credentials.from_authorized_user_info(json.loads(self.get_token_json()))
 
         if creds.expired and creds.refresh_token:
-            logger.info("Refreshing expired Google OAuth token for user %s", self.user.username)
+            logger.info("Refreshing expired Google OAuth session for user %s", self.user.username)
             creds.refresh(Request())
             self.set_token(creds.to_json())
             self.save(update_fields=["token", "token_updated_at"])
-            logger.info("Token refreshed and persisted for user %s", self.user.username)
+            logger.info("Session refreshed and persisted for user %s", self.user.username)
 
         return creds
 
 
 # ─── ProviderSettings ─────────────────────────────────────────────────────────
+
 
 class ProviderSettings(models.Model):
     """
@@ -169,6 +172,7 @@ class ProviderSettings(models.Model):
 
 # ─── Booking ──────────────────────────────────────────────────────────────────
 
+
 class BookingStatus(models.TextChoices):
     CONFIRMED = "confirmed", "Confirmed"
     CANCELLED = "cancelled", "Cancelled"
@@ -223,8 +227,4 @@ class Booking(models.Model):
         ordering = ["-start_time"]
 
     def __str__(self) -> str:
-        return (
-            f"Booking(email={self.email}, "
-            f"event={self.google_event_id}, "
-            f"status={self.status})"
-        )
+        return f"Booking(email={self.email}, event={self.google_event_id}, status={self.status})"

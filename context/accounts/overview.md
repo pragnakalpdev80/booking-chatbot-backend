@@ -40,7 +40,7 @@ def create_user_profile(sender, instance, created, **kwargs):
 ## 3. Endpoints & Views
 
 ### Authentication (JWT)
-The system relies on `djangorestframework-simplejwt` for authentication. 
+The system relies on `djangorestframework-simplejwt` for authentication.
 
 | Endpoint | Action | Payload | Response |
 |----------|--------|---------|----------|

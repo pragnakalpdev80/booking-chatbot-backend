@@ -23,7 +23,7 @@ def admin_user(db):
     return User.objects.create_superuser(
         username="admin",
         email="admin@example.com",
-        password="AdminPassword123!",
+        password="AdminPassword123!",  # nosec B106
     )
 
 
@@ -33,7 +33,7 @@ def user(db):
     return User.objects.create_user(
         username="testuser",
         email="test@example.com",
-        password="TestPassword123!",
+        password="TestPassword123!",  # nosec B106
         first_name="Test",
         last_name="User",
     )
