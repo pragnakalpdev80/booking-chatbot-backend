@@ -76,7 +76,7 @@ class SendMessageView(APIView):
         try:
             ai_response = run_agentic_loop(session, user_message)
         except Exception as exc:  # noqa: BLE001
-            logger.error("Agentic loop error for session %s: %s", session_key, exc, exc_info=True)
+            logger.exception("Agentic loop error for session %s: %s", session_key, exc)
             return Response(
                 {"error": "An error occurred processing your request. Please try again."},
                 status=status.HTTP_500_INTERNAL_SERVER_ERROR,

@@ -73,13 +73,15 @@ class TestBookingModel:
             start_time=datetime.datetime(2026, 8, 1, 10, 0, tzinfo=datetime.UTC),
             end_time=datetime.datetime(2026, 8, 1, 10, 30, tzinfo=datetime.UTC),
         )
+
+        duplicate = Booking(
+            email="b@example.com",
+            google_event_id="unique_evt",
+            start_time=datetime.datetime(2026, 8, 2, 10, 0, tzinfo=datetime.UTC),
+            end_time=datetime.datetime(2026, 8, 2, 10, 30, tzinfo=datetime.UTC),
+        )
         with pytest.raises(IntegrityError):
-            Booking.objects.create(
-                email="b@example.com",
-                google_event_id="unique_evt",
-                start_time=datetime.datetime(2026, 8, 2, 10, 0, tzinfo=datetime.UTC),
-                end_time=datetime.datetime(2026, 8, 2, 10, 30, tzinfo=datetime.UTC),
-            )
+            duplicate.save()
 
 
 @pytest.mark.django_db

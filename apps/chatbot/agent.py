@@ -87,6 +87,48 @@ explain clearly and suggest alternatives.
 """
 
 
+def _build_assistant_tool_call_message(assistant_message) -> dict:
+    """Build the Groq-compatible assistant message dict for tool call turns."""
+    return {
+        "role": "assistant",
+        "content": assistant_message.content or "",
+        "tool_calls": [
+            {
+                "id": tc.id,
+                "type": "function",
+                "function": {
+                    "name": tc.function.name,
+                    "arguments": tc.function.arguments,
+                },
+            }
+            for tc in assistant_message.tool_calls
+        ],
+    }
+
+
+def _dispatch_tool_calls(assistant_message, session, groq_messages, pending_tool_calls_for_db):
+    """Execute all tool calls from an assistant turn and append results to context."""
+    for tc in assistant_message.tool_calls:
+        tool_name = tc.function.name
+        try:
+            tool_args = json.loads(tc.function.arguments)
+        except json.JSONDecodeError:
+            tool_args = {}
+
+        logger.info("Executing tool '%s' for session %s", tool_name, session.session_key)
+        tool_result = execute_tool(tool_name, tool_args, session)
+
+        groq_messages.append(
+            {
+                "role": "tool",
+                "name": tool_name,
+                "content": tool_result,
+                "tool_call_id": tc.id,
+            }
+        )
+        pending_tool_calls_for_db.append({"tool_call_id": tc.id, "result": tool_result})
+
+
 def run_agentic_loop(session: ConversationSession, user_message_text: str) -> str:
     """
     Process a single anonymous user message through the full Groq agentic loop.
@@ -129,7 +171,7 @@ def run_agentic_loop(session: ConversationSession, user_message_text: str) -> st
     # 3. Agentic loop
     iterations = 0
     final_text = None
-    pending_tool_calls_for_db = []
+    pending_tool_calls_for_db: list[dict[str, Any]] = []
 
     while iterations < MAX_TOOL_ITERATIONS:
         iterations += 1
@@ -148,62 +190,15 @@ def run_agentic_loop(session: ConversationSession, user_message_text: str) -> st
         )
 
         choice = response.choices[0]
-        finish_reason = choice.finish_reason
         assistant_message = choice.message
 
-        if finish_reason == "stop" or not assistant_message.tool_calls:
+        if choice.finish_reason == "stop" or not assistant_message.tool_calls:
             final_text = assistant_message.content or ""
             break
 
         # LLM wants to call tools — add its turn to context
-        groq_messages.append(
-            {
-                "role": "assistant",
-                "content": assistant_message.content or "",
-                "tool_calls": [
-                    {
-                        "id": tc.id,
-                        "type": "function",
-                        "function": {
-                            "name": tc.function.name,
-                            "arguments": tc.function.arguments,
-                        },
-                    }
-                    for tc in assistant_message.tool_calls
-                ],
-            }
-        )
-
-        # Execute each tool call
-        for tc in assistant_message.tool_calls:
-            tool_name = tc.function.name
-            try:
-                tool_args = json.loads(tc.function.arguments)
-            except json.JSONDecodeError:
-                tool_args = {}
-
-            logger.info(
-                "Executing tool '%s' for session %s",
-                tool_name,
-                session.session_key,
-            )
-            tool_result = execute_tool(tool_name, tool_args, session)
-
-            groq_messages.append(
-                {
-                    "role": "tool",
-                    "name": tool_name,
-                    "content": tool_result,
-                    "tool_call_id": tc.id,
-                }
-            )
-
-            pending_tool_calls_for_db.append(
-                {
-                    "tool_call_id": tc.id,
-                    "result": tool_result,
-                }
-            )
+        groq_messages.append(_build_assistant_tool_call_message(assistant_message))
+        _dispatch_tool_calls(assistant_message, session, groq_messages, pending_tool_calls_for_db)
 
     if final_text is None:
         final_text = "I'm sorry, I wasn't able to process your request. Please try again."
