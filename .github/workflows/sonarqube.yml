@@ -29,6 +29,9 @@ jobs:
       - name: Run tests with coverage
         env:
           SECRET_KEY: "dummy-secret-for-tests"
+          DB_NAME: "postgres"
+          DB_USER: "postgres"
+          DB_PASSWORD: "postgres"
         run: pytest --cov=apps --cov-report=xml
 
       - name: SonarCloud Scan
