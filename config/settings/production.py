@@ -4,12 +4,13 @@ Production settings.
 Set DJANGO_SETTINGS_MODULE=config.settings.production
 All secrets must come from environment variables — never from a .env file.
 """
+
 from .base import *  # noqa: F401, F403
 
 DEBUG = False
 
 # ─── Security headers ────────────────────────────────────────────────────────
-SECURE_HSTS_SECONDS = 31536000          # 1 year
+SECURE_HSTS_SECONDS = 31536000  # 1 year
 SECURE_HSTS_INCLUDE_SUBDOMAINS = True
 SECURE_HSTS_PRELOAD = True
 SECURE_SSL_REDIRECT = True

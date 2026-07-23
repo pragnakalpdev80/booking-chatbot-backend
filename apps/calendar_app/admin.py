@@ -13,8 +13,12 @@ class GoogleCredentialAdmin(admin.ModelAdmin):
 @admin.register(ProviderSettings)
 class ProviderSettingsAdmin(admin.ModelAdmin):
     list_display = [
-        "provider_name", "timezone", "work_start", "work_end",
-        "slot_duration", "updated_at",
+        "provider_name",
+        "timezone",
+        "work_start",
+        "work_end",
+        "slot_duration",
+        "updated_at",
     ]
     readonly_fields = ["updated_at"]
 
@@ -22,8 +26,13 @@ class ProviderSettingsAdmin(admin.ModelAdmin):
 @admin.register(Booking)
 class BookingAdmin(admin.ModelAdmin):
     list_display = [
-        "email", "name", "google_event_id",
-        "start_time", "end_time", "status", "created_at",
+        "email",
+        "name",
+        "google_event_id",
+        "start_time",
+        "end_time",
+        "status",
+        "created_at",
     ]
     list_filter = ["status"]
     search_fields = ["email", "name", "google_event_id", "reason"]

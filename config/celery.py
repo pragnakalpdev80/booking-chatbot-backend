@@ -3,7 +3,9 @@
 Celery application instance for the calendar-chatbot project.
 Import this in config/__init__.py to ensure tasks are auto-discovered.
 """
+
 import os
+from typing import Any
 
 from celery import Celery
 
@@ -19,5 +21,5 @@ app.autodiscover_tasks()
 
 
 @app.task(bind=True, ignore_result=True)
-def debug_task(self):
+def debug_task(self: Any) -> None:
     print(f"Request: {self.request!r}")

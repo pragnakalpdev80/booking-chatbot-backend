@@ -3,7 +3,9 @@
 Unit tests for chatbot models.
 Verifies anonymous ConversationSession creation and Message storage.
 """
+
 import uuid
+
 import pytest
 
 from apps.chatbot.models import ConversationSession, Message, MessageRole

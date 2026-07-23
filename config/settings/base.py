@@ -3,14 +3,14 @@
 Base settings shared across all environments.
 Do NOT import this directly — use local.py or production.py.
 """
+
+import contextlib
 import os
 from datetime import timedelta
 from pathlib import Path
 
-try:
+with contextlib.suppress(ImportError):
     import django_stubs_ext  # noqa: F401 — silences mypy stubs warning if present
-except ImportError:
-    pass
 
 # ─── Paths ────────────────────────────────────────────────────────────────────
 BASE_DIR = Path(__file__).resolve().parent.parent.parent  # project root
@@ -40,7 +40,7 @@ INSTALLED_APPS = [
 # ─── Middleware ───────────────────────────────────────────────────────────────
 MIDDLEWARE = [
     "django.middleware.security.SecurityMiddleware",
-    "corsheaders.middleware.CorsMiddleware",          # must be before CommonMiddleware
+    "corsheaders.middleware.CorsMiddleware",  # must be before CommonMiddleware
     "django.contrib.sessions.middleware.SessionMiddleware",
     "django.middleware.common.CommonMiddleware",
     "django.middleware.csrf.CsrfViewMiddleware",
@@ -144,7 +144,8 @@ GOOGLE_CLIENT_SECRETS_FILE = BASE_DIR / os.getenv("GOOGLE_CLIENT_SECRETS_FILE", 
 GOOGLE_OAUTH_REDIRECT_URI = os.getenv("GOOGLE_OAUTH_REDIRECT_URI")
 
 # ─── Token Encryption (Fernet) ────────────────────────────────────────────────
-# Generate a key with: python -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())"
+# Generate a key with:
+# python -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())"
 FERNET_KEY = os.getenv("FERNET_KEY", "")
 
 # ─── Groq ────────────────────────────────────────────────────────────────────
@@ -164,7 +165,10 @@ LOGGING = {
     "formatters": {
         "json": {
             "()": "django.utils.log.ServerFormatter",
-            "format": '{"time": "%(asctime)s", "level": "%(levelname)s", "logger": "%(name)s", "message": "%(message)s"}',
+            "format": (
+                '{"time": "%(asctime)s", "level": "%(levelname)s", '
+                '"logger": "%(name)s", "message": "%(message)s"}'
+            ),
         },
         "verbose": {
             "format": "[%(asctime)s] %(levelname)s %(name)s: %(message)s",

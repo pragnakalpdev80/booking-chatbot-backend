@@ -3,6 +3,7 @@
 User profile model — extends the built-in Django User.
 One-to-one link: each registered user has one UserProfile.
 """
+
 import logging
 
 from django.contrib.auth.models import User

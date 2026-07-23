@@ -3,9 +3,11 @@
 API tests for anonymous chatbot session endpoints.
 All endpoints must work WITHOUT an Authorization header.
 """
+
 import uuid
+from unittest.mock import patch
+
 import pytest
-from unittest.mock import patch, MagicMock
 
 from apps.chatbot.models import ConversationSession, Message, MessageRole
 
@@ -77,8 +79,10 @@ class TestSessionHistoryView:
         Message.objects.create(session=session, role=MessageRole.ASSISTANT, content="Hi there!")
         # Tool message — should be hidden in history
         Message.objects.create(
-            session=session, role=MessageRole.TOOL,
-            content='{"status": "ok"}', tool_call_id="call_1",
+            session=session,
+            role=MessageRole.TOOL,
+            content='{"status": "ok"}',
+            tool_call_id="call_1",
         )
         return session
 

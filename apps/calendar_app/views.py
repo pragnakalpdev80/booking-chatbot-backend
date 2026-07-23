@@ -19,16 +19,17 @@ Anonymous endpoints (AllowAny):
   PATCH  /api/appointments/<event_id>/reschedule/   — reschedule (email required in body)
   DELETE /api/appointments/<event_id>/cancel/       — cancel (email required in body)
 """
+
 import logging
 from datetime import datetime, timedelta
 from zoneinfo import ZoneInfo
 
 from django.conf import settings
-from django.core.cache import cache
 from django.contrib.auth.models import User
+from django.core.cache import cache
+from google_auth_oauthlib.flow import Flow
 from googleapiclient.discovery import build
 from googleapiclient.errors import HttpError
-from google_auth_oauthlib.flow import Flow
 from rest_framework import status
 from rest_framework.permissions import AllowAny, IsAdminUser
 from rest_framework.response import Response
@@ -58,16 +59,16 @@ SLOT_DURATION_MINUTES = 30  # Hard-coded business rule
 
 # ─── Shared helpers ───────────────────────────────────────────────────────────
 
+
 def _get_flow(state=None) -> Flow:
     kwargs = {
         "scopes": SCOPES,
-        "redirect_uri": settings.GOOGLE_OAUTH_REDIRECT_URI,
+        "redirect_uri": getattr(settings, "GOOGLE_OAUTH_REDIRECT_URI", ""),
     }
     if state:
         kwargs["state"] = state
     return Flow.from_client_secrets_file(
-        settings.GOOGLE_CLIENT_SECRETS_FILE,
-        **kwargs
+        getattr(settings, "GOOGLE_CLIENT_SECRETS_FILE", ""), **kwargs
     )
 
 
@@ -78,7 +79,7 @@ def _get_admin_credential() -> GoogleCredential:
     except GoogleCredential.DoesNotExist:
         raise RuntimeError(
             "Google Calendar is not connected. An admin must complete the OAuth flow first."
-        )
+        ) from None
 
 
 def _build_service(credential: GoogleCredential):
@@ -104,6 +105,7 @@ def _check_freebusy(service, start_dt: datetime, end_dt: datetime) -> bool:
 
 
 # ─── Google OAuth (admin only) ────────────────────────────────────────────────
+
 
 class GoogleLoginView(APIView):
     """Initiate Google OAuth — admin only."""
@@ -158,13 +160,16 @@ class GoogleOAuth2CallbackView(APIView):
 
         action = "created" if created else "updated"
         logger.info(
-            "GoogleCredential %s for admin %s (scope: %s)",
-            action, admin_user.username, credential.scope,
+            "Google connection %s for admin %s (scope: %s)",
+            action,
+            admin_user.username,
+            credential.scope,
         )
         return Response({"status": "connected", "scope": credential.scope})
 
 
 # ─── Admin calendar CRUD ──────────────────────────────────────────────────────
+
 
 class CalendarEventsView(APIView):
     """GET /api/calendar/events/ — list upcoming events (admin only)"""
@@ -180,13 +185,17 @@ class CalendarEventsView(APIView):
             return Response({"error": str(exc)}, status=status.HTTP_503_SERVICE_UNAVAILABLE)
 
         try:
-            result = service.events().list(
-                calendarId="primary",
-                maxResults=50,
-                singleEvents=True,
-                orderBy="startTime",
-                timeMin=datetime.utcnow().isoformat() + "Z",
-            ).execute()
+            result = (
+                service.events()
+                .list(
+                    calendarId="primary",
+                    maxResults=50,
+                    singleEvents=True,
+                    orderBy="startTime",
+                    timeMin=datetime.utcnow().isoformat() + "Z",
+                )
+                .execute()
+            )
         except HttpError as exc:
             logger.error("events.list failed: %s", exc)
             return Response({"error": str(exc)}, status=status.HTTP_502_BAD_GATEWAY)
@@ -241,6 +250,7 @@ class CalendarEventDetailView(APIView):
 
 # ─── Availability (anonymous) ─────────────────────────────────────────────────
 
+
 class AvailabilityView(APIView):
     """
     GET /api/calendar/availability/?date=YYYY-MM-DD
@@ -272,11 +282,13 @@ class AvailabilityView(APIView):
         tz = ZoneInfo(ps.timezone)
 
         if query_date.weekday() not in (ps.work_days or [0, 1, 2, 3, 4]):
-            return Response({
-                "available_slots": [],
-                "message": "No bookings available on this day.",
-                "timezone": ps.timezone,
-            })
+            return Response(
+                {
+                    "available_slots": [],
+                    "message": "No bookings available on this day.",
+                    "timezone": ps.timezone,
+                }
+            )
 
         start_of_day = datetime.combine(query_date, ps.work_start, tzinfo=tz)
         end_of_day = datetime.combine(query_date, ps.work_end, tzinfo=tz)
@@ -289,13 +301,17 @@ class AvailabilityView(APIView):
             return Response({"error": str(exc)}, status=status.HTTP_503_SERVICE_UNAVAILABLE)
 
         try:
-            freebusy_result = service.freebusy().query(
-                body={
-                    "timeMin": start_of_day.isoformat(),
-                    "timeMax": end_of_day.isoformat(),
-                    "items": [{"id": "primary"}],
-                }
-            ).execute()
+            freebusy_result = (
+                service.freebusy()
+                .query(
+                    body={
+                        "timeMin": start_of_day.isoformat(),
+                        "timeMax": end_of_day.isoformat(),
+                        "items": [{"id": "primary"}],
+                    }
+                )
+                .execute()
+            )
         except HttpError as exc:
             logger.error("freebusy failed: %s", exc)
             return Response({"error": str(exc)}, status=status.HTTP_502_BAD_GATEWAY)
@@ -323,6 +339,7 @@ class AvailabilityView(APIView):
 
 
 # ─── Anonymous booking endpoints ──────────────────────────────────────────────
+
 
 class BookAppointmentView(APIView):
     """
@@ -380,9 +397,7 @@ class BookAppointmentView(APIView):
         }
 
         try:
-            created_event = service.events().insert(
-                calendarId="primary", body=event_body
-            ).execute()
+            created_event = service.events().insert(calendarId="primary", body=event_body).execute()
         except HttpError as exc:
             logger.error("events.insert failed: %s", exc)
             return Response({"error": str(exc)}, status=status.HTTP_502_BAD_GATEWAY)
@@ -497,7 +512,9 @@ class RescheduleAppointmentView(APIView):
         booking.status = BookingStatus.RESCHEDULED
         booking.save(update_fields=["start_time", "end_time", "status", "updated_at"])
 
-        logger.info("Booking rescheduled: email=%s event=%s -> %s", email, event_id, new_start.isoformat())
+        logger.info(
+            "Booking rescheduled: email=%s event=%s -> %s", email, event_id, new_start.isoformat()
+        )
         return Response(BookingSerializer(booking).data)
 
 
@@ -535,6 +552,7 @@ class CancelAppointmentView(APIView):
 
 
 # ─── ProviderSettings (admin only) ────────────────────────────────────────────
+
 
 class ProviderSettingsView(APIView):
     """GET/PATCH /api/admin/provider-settings/ (admin only)"""

@@ -3,16 +3,16 @@
 API tests for anonymous calendar_app endpoints.
 All booking endpoints must work WITHOUT an Authorization header.
 """
+
 import datetime
-import json
-import pytest
 from unittest.mock import MagicMock, patch
-from django.urls import reverse
+
+import pytest
 
 from apps.calendar_app.models import Booking, BookingStatus, ProviderSettings
 
-
 # ─── Fixtures ────────────────────────────────────────────────────────────────
+
 
 @pytest.fixture(autouse=True)
 def provider_settings(db):
@@ -22,9 +22,11 @@ def provider_settings(db):
 @pytest.fixture
 def mock_google_service():
     """Mock Google Calendar API service for both views and Celery tasks."""
-    with patch("apps.calendar_app.views._get_admin_credential") as mock_cred, \
-         patch("apps.calendar_app.views._build_service") as mock_build, \
-         patch("apps.calendar_app.tasks._get_service") as mock_task_svc:
+    with (
+        patch("apps.calendar_app.views._get_admin_credential"),
+        patch("apps.calendar_app.views._build_service") as mock_build,
+        patch("apps.calendar_app.tasks._get_service") as mock_task_svc,
+    ):
         mock_service = MagicMock()
         mock_build.return_value = mock_service
         mock_task_svc.return_value = mock_service
@@ -40,14 +42,15 @@ def booked_booking():
     return Booking.objects.create(
         email="existing@example.com",
         google_event_id="existing_evt_001",
-        start_time=datetime.datetime(2026, 8, 4, 10, 0, tzinfo=datetime.timezone.utc),
-        end_time=datetime.datetime(2026, 8, 4, 10, 30, tzinfo=datetime.timezone.utc),
+        start_time=datetime.datetime(2026, 8, 4, 10, 0, tzinfo=datetime.UTC),
+        end_time=datetime.datetime(2026, 8, 4, 10, 30, tzinfo=datetime.UTC),
         reason="Existing booking",
         status=BookingStatus.CONFIRMED,
     )
 
 
 # ─── Availability ─────────────────────────────────────────────────────────────
+
 
 @pytest.mark.django_db
 class TestAvailabilityView:
@@ -92,6 +95,7 @@ class TestAvailabilityView:
 
 
 # ─── Book Appointment ─────────────────────────────────────────────────────────
+
 
 @pytest.mark.django_db
 class TestBookAppointmentView:
@@ -144,9 +148,11 @@ class TestBookAppointmentView:
 
     def test_book_conflicting_slot_returns_409(self, api_client, mock_google_service):
         mock_google_service.freebusy().query().execute.return_value = {
-            "calendars": {"primary": {"busy": [
-                {"start": "2026-08-04T04:30:00Z", "end": "2026-08-04T05:00:00Z"}
-            ]}}
+            "calendars": {
+                "primary": {
+                    "busy": [{"start": "2026-08-04T04:30:00Z", "end": "2026-08-04T05:00:00Z"}]
+                }
+            }
         }
         payload = {
             "email": "conflict@example.com",
@@ -166,6 +172,7 @@ class TestBookAppointmentView:
 
 # ─── List Bookings by Email ───────────────────────────────────────────────────
 
+
 @pytest.mark.django_db
 class TestBookingsByEmailView:
     def test_list_bookings_by_email(self, api_client, booked_booking):
@@ -179,8 +186,8 @@ class TestBookingsByEmailView:
             Booking.objects.create(
                 email="multi@example.com",
                 google_event_id=f"multi_evt_{i}",
-                start_time=datetime.datetime(2026, 8, i + 4, 10, 0, tzinfo=datetime.timezone.utc),
-                end_time=datetime.datetime(2026, 8, i + 4, 10, 30, tzinfo=datetime.timezone.utc),
+                start_time=datetime.datetime(2026, 8, i + 4, 10, 0, tzinfo=datetime.UTC),
+                end_time=datetime.datetime(2026, 8, i + 4, 10, 30, tzinfo=datetime.UTC),
             )
         response = api_client.get("/api/appointments/by-email/?email=multi@example.com")
         assert response.status_code == 200
@@ -190,8 +197,8 @@ class TestBookingsByEmailView:
         Booking.objects.create(
             email="cancelled@example.com",
             google_event_id="cancelled_evt",
-            start_time=datetime.datetime(2026, 8, 4, 10, 0, tzinfo=datetime.timezone.utc),
-            end_time=datetime.datetime(2026, 8, 4, 10, 30, tzinfo=datetime.timezone.utc),
+            start_time=datetime.datetime(2026, 8, 4, 10, 0, tzinfo=datetime.UTC),
+            end_time=datetime.datetime(2026, 8, 4, 10, 30, tzinfo=datetime.UTC),
             status=BookingStatus.CANCELLED,
         )
         response = api_client.get("/api/appointments/by-email/?email=cancelled@example.com")
@@ -209,6 +216,7 @@ class TestBookingsByEmailView:
 
 
 # ─── Reschedule ───────────────────────────────────────────────────────────────
+
 
 @pytest.mark.django_db
 class TestRescheduleAppointmentView:
@@ -230,7 +238,9 @@ class TestRescheduleAppointmentView:
         booked_booking.refresh_from_db()
         assert booked_booking.status == BookingStatus.RESCHEDULED
 
-    def test_reschedule_wrong_email_returns_404(self, api_client, booked_booking, mock_google_service):
+    def test_reschedule_wrong_email_returns_404(
+        self, api_client, booked_booking, mock_google_service
+    ):
         payload = {
             "email": "wrong@example.com",
             "new_start_time": "2026-08-05T11:00:00+05:30",
@@ -244,9 +254,11 @@ class TestRescheduleAppointmentView:
 
     def test_reschedule_conflict_returns_409(self, api_client, booked_booking, mock_google_service):
         mock_google_service.freebusy().query().execute.return_value = {
-            "calendars": {"primary": {"busy": [
-                {"start": "2026-08-05T05:30:00Z", "end": "2026-08-05T06:00:00Z"}
-            ]}}
+            "calendars": {
+                "primary": {
+                    "busy": [{"start": "2026-08-05T05:30:00Z", "end": "2026-08-05T06:00:00Z"}]
+                }
+            }
         }
         payload = {
             "email": "existing@example.com",
@@ -261,6 +273,7 @@ class TestRescheduleAppointmentView:
 
 
 # ─── Cancel ───────────────────────────────────────────────────────────────────
+
 
 @pytest.mark.django_db
 class TestCancelAppointmentView:
@@ -295,6 +308,7 @@ class TestCancelAppointmentView:
 
 
 # ─── Admin routes remain protected ───────────────────────────────────────────
+
 
 @pytest.mark.django_db
 class TestAdminRoutesProtected:
