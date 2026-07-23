@@ -100,7 +100,7 @@ def _check_freebusy(service, start_dt: datetime, end_dt: datetime) -> bool:
         busy_slots = result.get("calendars", {}).get("primary", {}).get("busy", [])
         return len(busy_slots) == 0
     except HttpError as exc:
-        logger.error("freebusy check failed: %s", exc)
+        logger.exception("freebusy check failed: %s", exc)
         raise RuntimeError(f"Could not check calendar availability: {exc}") from exc
 
 
@@ -143,7 +143,7 @@ class GoogleOAuth2CallbackView(APIView):
             flow.fetch_token(authorization_response=request.build_absolute_uri())
             creds = flow.credentials
         except Exception as exc:
-            logger.error("OAuth callback failed: %s", exc)
+            logger.exception("OAuth callback failed: %s", exc)
             return Response({"error": str(exc)}, status=status.HTTP_400_BAD_REQUEST)
 
         admin_user = User.objects.filter(is_superuser=True).first()
@@ -192,12 +192,12 @@ class CalendarEventsView(APIView):
                     maxResults=50,
                     singleEvents=True,
                     orderBy="startTime",
-                    timeMin=datetime.utcnow().isoformat() + "Z",
+                    timeMin=datetime.now(tz=ZoneInfo("UTC")).isoformat(),
                 )
                 .execute()
             )
         except HttpError as exc:
-            logger.error("events.list failed: %s", exc)
+            logger.exception("events.list failed: %s", exc)
             return Response({"error": str(exc)}, status=status.HTTP_502_BAD_GATEWAY)
 
         events = result.get("items", [])
@@ -313,7 +313,7 @@ class AvailabilityView(APIView):
                 .execute()
             )
         except HttpError as exc:
-            logger.error("freebusy failed: %s", exc)
+            logger.exception("freebusy failed: %s", exc)
             return Response({"error": str(exc)}, status=status.HTTP_502_BAD_GATEWAY)
 
         busy_intervals = freebusy_result.get("calendars", {}).get("primary", {}).get("busy", [])
@@ -399,7 +399,7 @@ class BookAppointmentView(APIView):
         try:
             created_event = service.events().insert(calendarId="primary", body=event_body).execute()
         except HttpError as exc:
-            logger.error("events.insert failed: %s", exc)
+            logger.exception("events.insert failed: %s", exc)
             return Response({"error": str(exc)}, status=status.HTTP_502_BAD_GATEWAY)
 
         google_event_id = created_event["id"]

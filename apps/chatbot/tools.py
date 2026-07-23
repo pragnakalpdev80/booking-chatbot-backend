@@ -28,6 +28,9 @@ logger = logging.getLogger(__name__)
 # Hard-coded business rule — never overrideable
 SLOT_DURATION_MINUTES = 30
 
+# Constant for error message used across multiple tools
+_EMAIL_NOT_COLLECTED_MSG = "Email not collected yet. Please ask the user for their email first."
+
 
 # ─── Tool schemas ─────────────────────────────────────────────────────────────
 
@@ -226,11 +229,34 @@ def execute_tool(tool_name: str, tool_args: dict, session: ConversationSession) 
         else:
             return json.dumps({"error": f"Unknown tool: {tool_name}"})
     except Exception as exc:  # noqa: BLE001
-        logger.error("Tool %s raised exception: %s", tool_name, exc, exc_info=True)
+        logger.exception("Tool %s raised exception: %s", tool_name, exc)
         return json.dumps({"error": str(exc)})
 
 
 # ─── Individual tool implementations ─────────────────────────────────────────
+
+
+def _is_slot_free(busy_intervals: list, slot_start: datetime, slot_end: datetime) -> bool:
+    """Return True if the slot does not overlap any busy interval."""
+    for b in busy_intervals:
+        b_start = datetime.fromisoformat(b["start"].replace("Z", "+00:00"))
+        b_end = datetime.fromisoformat(b["end"].replace("Z", "+00:00"))
+        if slot_start < b_end and slot_end > b_start:
+            return False
+    return True
+
+
+def _build_no_slots_message(end_of_day: datetime, now: datetime) -> str:
+    """Return a human-friendly message when no slots are available."""
+    if end_of_day <= now:
+        return (
+            "The working hours for this date have already passed. "
+            "Please ask the user to select a future date."
+        )
+    return (
+        "All available slots for this date are fully booked. "
+        "Please ask the user to select another date."
+    )
 
 
 def _save_session_email(session: ConversationSession, email: str) -> str:
@@ -281,36 +307,17 @@ def _get_available_slots(session: ConversationSession, date: str) -> str:
 
     busy_intervals = freebusy_result.get("calendars", {}).get("primary", {}).get("busy", [])
 
-    def _is_free(s, e):
-        for b in busy_intervals:
-            b_start = datetime.fromisoformat(b["start"].replace("Z", "+00:00"))
-            b_end = datetime.fromisoformat(b["end"].replace("Z", "+00:00"))
-            if s < b_end and e > b_start:
-                return False
-        return True
-
     now = datetime.now(tz=tz)
     slots = []
     current = start_of_day
     while current + slot_delta <= end_of_day:
         slot_end = current + slot_delta
         # Only offer slots that are in the future
-        if current >= now and _is_free(current, slot_end):
+        if current >= now and _is_slot_free(busy_intervals, current, slot_end):
             slots.append({"start": current.isoformat(), "end": slot_end.isoformat()})
         current = slot_end
 
-    message = ""
-    if len(slots) == 0:
-        if end_of_day <= now:
-            message = (
-                "The working hours for this date have already passed. "
-                "Please ask the user to select a future date."
-            )
-        else:
-            message = (
-                "All available slots for this date are fully booked. "
-                "Please ask the user to select another date."
-            )
+    message = _build_no_slots_message(end_of_day, now) if not slots else ""
 
     return json.dumps(
         {
@@ -330,9 +337,7 @@ def _book_appointment(session: ConversationSession, start_time: str, reason: str
 
     email = session.user_email
     if not email:
-        return json.dumps(
-            {"error": "Email not collected yet. Please ask the user for their email first."}
-        )
+        return json.dumps({"error": _EMAIL_NOT_COLLECTED_MSG})
 
     try:
         start_dt = datetime.fromisoformat(start_time)
@@ -391,9 +396,7 @@ def _reschedule_appointment(
 
     email = session.user_email
     if not email:
-        return json.dumps(
-            {"error": "Email not collected yet. Please ask the user for their email first."}
-        )
+        return json.dumps({"error": _EMAIL_NOT_COLLECTED_MSG})
 
     try:
         booking = Booking.objects.get(google_event_id=event_id, email=email)
@@ -447,9 +450,7 @@ def _cancel_appointment(session: ConversationSession, event_id: str) -> str:
 
     email = session.user_email
     if not email:
-        return json.dumps(
-            {"error": "Email not collected yet. Please ask the user for their email first."}
-        )
+        return json.dumps({"error": _EMAIL_NOT_COLLECTED_MSG})
 
     try:
         booking = Booking.objects.get(google_event_id=event_id, email=email)
@@ -482,9 +483,7 @@ def _list_my_appointments(
 
     email = session.user_email
     if not email:
-        return json.dumps(
-            {"error": "Email not collected yet. Please ask the user for their email first."}
-        )
+        return json.dumps({"error": _EMAIL_NOT_COLLECTED_MSG})
 
     from datetime import date as date_type
 

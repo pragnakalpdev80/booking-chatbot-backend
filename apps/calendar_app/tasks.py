@@ -53,7 +53,7 @@ def task_insert_event(self, event_body: dict) -> dict:
                 delay,
             )
             raise self.retry(exc=exc, countdown=delay) from exc
-        logger.error("task_insert_event: non-retryable HttpError %s", exc)
+        logger.exception("task_insert_event: non-retryable HttpError %s", exc)
         raise
 
 
@@ -81,7 +81,7 @@ def task_patch_event(self, event_id: str, patch_body: dict) -> dict:
                 delay,
             )
             raise self.retry(exc=exc, countdown=delay) from exc
-        logger.error("task_patch_event: non-retryable HttpError %s for event %s", exc, event_id)
+        logger.exception("task_patch_event: non-retryable HttpError %s for event %s", exc, event_id)
         raise
 
 
@@ -109,5 +109,7 @@ def task_cancel_event(self, event_id: str) -> None:
                 delay,
             )
             raise self.retry(exc=exc, countdown=delay) from exc
-        logger.error("task_cancel_event: non-retryable HttpError %s for event %s", exc, event_id)
+        logger.exception(
+            "task_cancel_event: non-retryable HttpError %s for event %s", exc, event_id
+        )
         raise
