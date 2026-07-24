@@ -8,18 +8,6 @@ from rest_framework import serializers
 from .models import Booking, ProviderSettings
 
 
-class EventSerializer(serializers.Serializer):
-    """Read-only representation of a Google Calendar event dict."""
-
-    id = serializers.CharField(read_only=True)
-    summary = serializers.CharField(read_only=True)
-    start = serializers.DictField(read_only=True)
-    end = serializers.DictField(read_only=True)
-    htmlLink = serializers.CharField(read_only=True)
-    status = serializers.CharField(read_only=True)
-    description = serializers.CharField(read_only=True, required=False, allow_null=True)
-
-
 class AvailableSlotSerializer(serializers.Serializer):
     """A single free time slot returned by the availability endpoint."""
 
@@ -41,6 +29,27 @@ class ProviderSettingsSerializer(serializers.ModelSerializer):
             "updated_at",
         ]
         read_only_fields = ["id", "updated_at"]
+
+
+class ProviderListSerializer(serializers.ModelSerializer):
+    """Read-only representation of a provider for the frontend directory."""
+
+    provider_name = serializers.CharField(source="provider_settings.provider_name", read_only=True)
+    work_start = serializers.TimeField(source="provider_settings.work_start", read_only=True)
+    work_end = serializers.TimeField(source="provider_settings.work_end", read_only=True)
+    timezone = serializers.CharField(source="provider_settings.timezone", read_only=True)
+
+    class Meta:
+        from django.contrib.auth.models import User
+
+        model = User
+        fields = [
+            "id",
+            "provider_name",
+            "work_start",
+            "work_end",
+            "timezone",
+        ]
 
 
 class BookingSerializer(serializers.ModelSerializer):
@@ -71,6 +80,7 @@ class BookAppointmentSerializer(serializers.Serializer):
     """
 
     email = serializers.EmailField()
+    provider_id = serializers.IntegerField()
     name = serializers.CharField(required=False, allow_blank=True, default="")
     start_time = serializers.DateTimeField()
     reason = serializers.CharField(required=False, allow_blank=True, default="")

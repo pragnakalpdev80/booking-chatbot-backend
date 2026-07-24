@@ -15,9 +15,11 @@ from django.urls import include, path
 urlpatterns = [
     path("admin/", admin.site.urls),
     # User auth
-    path("api/accounts/", include("apps.accounts.urls")),
+    path("api/v1/accounts/", include("apps.accounts.urls")),
     # Google Calendar + appointments
-    path("api/", include("apps.calendar_app.urls")),
+    path("api/v1/", include("apps.calendar_app.urls")),
     # Groq chatbot
-    path("api/chat/", include("apps.chatbot.urls")),
+    path("api/v1/chat/", include("apps.chatbot.urls")),
+    # Dashboard
+    path("api/v1/dashboard/", include("apps.dashboard.urls")),
 ]

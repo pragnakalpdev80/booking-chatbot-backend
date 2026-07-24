@@ -16,7 +16,6 @@ import logging
 from cryptography.fernet import Fernet
 from django.conf import settings
 from django.contrib.auth.models import User
-from django.core.exceptions import ValidationError
 from django.db import models
 from google.auth.transport.requests import Request
 from google.oauth2.credentials import Credentials
@@ -106,10 +105,25 @@ class GoogleCredential(models.Model):
 
 class ProviderSettings(models.Model):
     """
-    Singleton model — only ONE row should ever exist.
-    Stores the admin's working hours and scheduling metadata.
-    Editable via Django admin or the superuser-only API endpoint.
+    Singleton assumption has been removed — there is ONE row per provider.
+    Stores the provider's working hours and scheduling metadata.
+    Editable via Django admin or the provider portal.
     """
+
+    user = models.OneToOneField(
+        User,
+        on_delete=models.CASCADE,
+        related_name="provider_settings",
+        help_text="The doctor/provider who owns these settings.",
+    )
+    calendar_id = models.CharField(
+        max_length=255,
+        default="primary",
+        help_text=(
+            "The Google Calendar ID used for bookings "
+            "(e.g. 'primary' or 'abc@group.calendar.google.com')."
+        ),
+    )
 
     provider_name = models.CharField(
         max_length=255,
@@ -146,20 +160,17 @@ class ProviderSettings(models.Model):
     def __str__(self) -> str:
         return f"ProviderSettings({self.provider_name})"
 
-    def clean(self) -> None:
-        """Enforce singleton: at most one row."""
-        if not self.pk and ProviderSettings.objects.exists():
-            raise ValidationError(
-                "Only one ProviderSettings record is allowed. Edit the existing one."
-            )
-
     @classmethod
-    def get_instance(cls) -> "ProviderSettings":
-        """Return the singleton instance, creating a default if it doesn't exist."""
+    def get_for_provider(cls, user: User) -> "ProviderSettings":
+        """
+        Return the settings instance for a specific provider,
+        creating a default if it doesn't exist.
+        """
         obj, _ = cls.objects.get_or_create(
-            pk=1,
+            user=user,
             defaults={
-                "provider_name": "Dr. Smith",
+                "provider_name": f"Dr. {user.last_name or user.username}",
+                "calendar_id": "primary",
                 "work_days": [0, 1, 2, 3, 4],
                 "work_start": datetime.time(9, 0),
                 "work_end": datetime.time(17, 0),
@@ -194,6 +205,13 @@ class Booking(models.Model):
     email = models.EmailField(
         db_index=True,
         help_text="Email address of the anonymous user who made this booking.",
+    )
+    provider = models.ForeignKey(
+        User,
+        on_delete=models.SET_NULL,
+        null=True,
+        related_name="bookings",
+        help_text="The doctor/provider this appointment is booked with.",
     )
     name = models.CharField(
         max_length=255,
@@ -248,6 +266,13 @@ class SlotLock(models.Model):
         blank=True,
         help_text="The session key that holds this lock.",
     )
+    provider = models.ForeignKey(
+        User,
+        on_delete=models.CASCADE,
+        related_name="slot_locks",
+        null=True,
+        help_text="The doctor/provider this slot lock is for.",
+    )
     slot_start = models.DateTimeField(db_index=True)
     slot_end = models.DateTimeField()
     expires_at = models.DateTimeField(db_index=True)
@@ -264,9 +289,9 @@ class SlotLock(models.Model):
         ordering = ["-locked_at"]
         constraints = [
             models.UniqueConstraint(
-                fields=["slot_start"],
+                fields=["slot_start", "provider"],
                 condition=models.Q(is_confirmed=False),
-                name="unique_active_slot_lock",
+                name="unique_active_slot_lock_per_provider",
             )
         ]
 

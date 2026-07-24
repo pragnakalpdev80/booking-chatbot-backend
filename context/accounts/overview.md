@@ -72,22 +72,39 @@ Creates a new User and their associated UserProfile.
   }
   ```
 
-#### `GET /api/accounts/me/` (JWT Required)
+#### `GET /api/v1/accounts/me/` (JWT Required)
 Retrieves the authenticated user's profile information.
 - **Response (200 OK):**
   ```json
   {
-      "id": 1,
-      "username": "johndoe",
-      "email": "john@example.com",
-      "first_name": "John",
-      "last_name": "Doe",
-      "profile": {
-          "phone": "555-1234",
-          "date_of_birth": null
+      "success": true,
+      "message": "",
+      "data": {
+          "id": 1,
+          "username": "johndoe",
+          "email": "john@example.com",
+          "first_name": "John",
+          "last_name": "Doe",
+          "profile": {
+              "phone": "555-1234",
+              "date_of_birth": null
+          }
       }
   }
   ```
+
+#### `PATCH /api/v1/accounts/me/` (JWT Required)
+Updates the authenticated user's profile information. Supports partial updates for `first_name`, `last_name`, and nested `profile` fields.
+- **Expected Payload:**
+  ```json
+  {
+      "first_name": "Jane",
+      "profile": {
+          "phone": "987-6543"
+      }
+  }
+  ```
+- **Response (200 OK):** Returns the updated profile in `data`.
 
 ---
 

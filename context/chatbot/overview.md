@@ -99,11 +99,20 @@ Example Schema (`book_appointment`):
 
 ## 4. Endpoints & Views
 
-All endpoints require JWT Authentication.
+The chatbot is public/anonymous. Sessions are isolated using standard UUID session keys.
+All responses are wrapped in `ApiResponse`.
 
 | Endpoint | Method | Payload / Action |
 |----------|--------|------------------|
-| `/api/chat/sessions/` | `POST` | Generates a new `ConversationSession`. Returns `session_id`. |
-| `/api/chat/sessions/<id>/messages/` | `GET` | Retrieves full history for a session, filtering out internal `tool` messages to only show human-readable dialogue. |
-| `/api/chat/sessions/<id>/` | `DELETE` | Deletes a session entirely. |
-| `/api/chat/message/` | `POST` | The primary chat interface. Payload: `{"session_id": "...", "message": "Hi, I need an appointment tomorrow."}`. Triggers the Agentic Loop and returns `{"response": "..."}`. |
+| `/api/v1/chat/sessions/` | `POST` | Generates a new `ConversationSession`. Returns `session_key`. Payload: `{"provider_id": 1}` |
+| `/api/v1/chat/sessions/<id>/messages/` | `GET` | Retrieves full history for a session, filtering out internal `tool` messages. |
+| `/api/v1/chat/sessions/<id>/` | `DELETE` | Deletes a session entirely. |
+| `/api/v1/chat/message/` | `POST` | Payload: `{"session_key": "...", "message": "Hi"}`. Triggers the Agentic Loop. |
+
+---
+
+## 5. Services
+
+Business logic is encapsulated in dedicated service classes:
+- **`ChatSessionService`**: Manages session creation, retrieval, and deletion.
+- **`AgenticService`**: Wraps the agentic loop execution and properly handles application errors.

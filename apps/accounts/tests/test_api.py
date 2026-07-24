@@ -18,7 +18,7 @@ def test_user_registration_success(api_client):
     }
     response = api_client.post(url, payload)
     assert response.status_code == status.HTTP_201_CREATED
-    assert response.data["username"] == "newuser"
+    assert response.data["data"]["username"] == "newuser"
 
     # Verify UserProfile auto-creation via signal
     user = User.objects.get(username="newuser")
@@ -39,7 +39,7 @@ def test_user_registration_password_mismatch(api_client):
     }
     response = api_client.post(url, payload)
     assert response.status_code == status.HTTP_400_BAD_REQUEST
-    assert "password" in response.data
+    assert "password" in response.data["data"]
 
 
 @pytest.mark.django_db
@@ -85,7 +85,7 @@ def test_user_registration_duplicate_username(api_client, user):
     }
     response = api_client.post(url, payload)
     assert response.status_code == status.HTTP_400_BAD_REQUEST
-    assert "username" in response.data
+    assert "username" in response.data["data"]
 
 
 @pytest.mark.django_db
@@ -125,5 +125,14 @@ def test_me_endpoint_authenticated(auth_client, user):
     url = reverse("accounts_me")
     response = auth_client.get(url)
     assert response.status_code == status.HTTP_200_OK
-    assert response.data["username"] == user.username
-    assert "profile" in response.data
+    assert response.data["data"]["username"] == user.username
+    assert "profile" in response.data["data"]
+
+    @pytest.mark.django_db
+    def test_me_endpoint_patch(self, auth_client, user):
+        url = reverse("accounts_me")
+        payload = {"first_name": "Updated", "last_name": "Name", "profile": {"phone": "9876543210"}}
+        response = auth_client.patch(url, payload, format="json")
+        assert response.status_code == status.HTTP_200_OK
+        assert response.data["data"]["first_name"] == "Updated"
+        assert response.data["data"]["profile"]["phone"] == "9876543210"

@@ -10,13 +10,13 @@ from apps.chatbot.tools import _lock_slot, _release_slot
 
 
 @pytest.fixture
-def session():
-    return ConversationSession.objects.create()
+def session(admin_user):
+    return ConversationSession.objects.create(provider=admin_user)
 
 
 @pytest.fixture
-def other_session():
-    return ConversationSession.objects.create()
+def other_session(admin_user):
+    return ConversationSession.objects.create(provider=admin_user)
 
 
 @pytest.mark.django_db

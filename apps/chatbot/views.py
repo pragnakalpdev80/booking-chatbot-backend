@@ -13,13 +13,15 @@ DELETE /api/chat/sessions/<session_key>/          — delete/end a session
 
 import logging
 
-from rest_framework import status
+from rest_framework import serializers, status
 from rest_framework.permissions import AllowAny
-from rest_framework.response import Response
 from rest_framework.views import APIView
 
-from .agent import run_agentic_loop
-from .models import ConversationSession
+from apps.chatbot.services.agentic_service import AgenticService
+from apps.chatbot.services.session_service import ChatSessionService
+from common.api.exceptions import ApplicationError
+from common.api.response import ApiResponse
+
 from .serializers import (
     ConversationSessionSerializer,
     MessageSerializer,
@@ -29,6 +31,10 @@ from .serializers import (
 logger = logging.getLogger(__name__)
 
 
+class StartSessionSerializer(serializers.Serializer):
+    provider_id = serializers.IntegerField()
+
+
 class StartSessionView(APIView):
     """POST /api/chat/sessions/ — create a new anonymous conversation session."""
 
@@ -36,12 +42,20 @@ class StartSessionView(APIView):
 
     def post(self, request):
         logger.debug("StartSessionView POST — anonymous session creation")
-        session = ConversationSession.objects.create()
-        logger.info("New anonymous chat session %s created", session.session_key)
-        return Response(
-            ConversationSessionSerializer(session).data,
-            status=status.HTTP_201_CREATED,
-        )
+        serializer = StartSessionSerializer(data=request.data)
+        if not serializer.is_valid():
+            return ApiResponse(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+
+        provider_id = serializer.validated_data["provider_id"]
+
+        try:
+            session = ChatSessionService.start_session(provider_id)
+            return ApiResponse(
+                ConversationSessionSerializer(session).data,
+                status=status.HTTP_201_CREATED,
+            )
+        except ApplicationError as e:
+            return ApiResponse({"error": str(e)}, status=e.status_code)
 
 
 class SendMessageView(APIView):
@@ -58,31 +72,17 @@ class SendMessageView(APIView):
         logger.debug("SendMessageView POST received")
         serializer = SendMessageSerializer(data=request.data)
         if not serializer.is_valid():
-            return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+            return ApiResponse(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
 
         session_key = serializer.validated_data["session_key"]
         user_message = serializer.validated_data["message"]
 
         try:
-            session = ConversationSession.objects.get(session_key=session_key)
-        except ConversationSession.DoesNotExist:
-            return Response(
-                {"error": "Session not found. Please start a new session."},
-                status=status.HTTP_404_NOT_FOUND,
-            )
-
-        logger.info("Received message for session %s", session_key)
-
-        try:
-            ai_response = run_agentic_loop(session, user_message)
-        except Exception as exc:  # noqa: BLE001
-            logger.exception("Agentic loop error for session %s: %s", session_key, exc)
-            return Response(
-                {"error": "An error occurred processing your request. Please try again."},
-                status=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            )
-
-        return Response({"response": ai_response})
+            session = ChatSessionService.get_session(session_key)
+            ai_response = AgenticService.send_message(session, user_message)
+            return ApiResponse({"response": ai_response})
+        except ApplicationError as e:
+            return ApiResponse({"error": str(e)}, status=e.status_code)
 
 
 class SessionHistoryView(APIView):
@@ -93,19 +93,18 @@ class SessionHistoryView(APIView):
     def get(self, request, session_key):
         logger.debug("SessionHistoryView GET for session %s", session_key)
         try:
-            session = ConversationSession.objects.get(session_key=session_key)
-        except ConversationSession.DoesNotExist:
-            return Response({"error": "Session not found."}, status=status.HTTP_404_NOT_FOUND)
-
-        # Exclude internal tool messages — only show user and assistant turns
-        messages = session.messages.exclude(role="tool").order_by("timestamp")
-        return Response(
-            {
-                "session_key": str(session.session_key),
-                "user_email": session.user_email or None,
-                "messages": MessageSerializer(messages, many=True).data,
-            }
-        )
+            session = ChatSessionService.get_session(session_key)
+            # Exclude internal tool messages — only show user and assistant turns
+            messages = session.messages.exclude(role="tool").order_by("timestamp")
+            return ApiResponse(
+                {
+                    "session_key": str(session.session_key),
+                    "user_email": session.user_email or None,
+                    "messages": MessageSerializer(messages, many=True).data,
+                }
+            )
+        except ApplicationError as e:
+            return ApiResponse({"error": str(e)}, status=e.status_code)
 
 
 class DeleteSessionView(APIView):
@@ -116,10 +115,7 @@ class DeleteSessionView(APIView):
     def delete(self, request, session_key):
         logger.debug("DeleteSessionView DELETE for session %s", session_key)
         try:
-            session = ConversationSession.objects.get(session_key=session_key)
-        except ConversationSession.DoesNotExist:
-            return Response({"error": "Session not found."}, status=status.HTTP_404_NOT_FOUND)
-
-        session.delete()
-        logger.info("Session %s deleted", session_key)
-        return Response(status=status.HTTP_204_NO_CONTENT)
+            ChatSessionService.delete_session(session_key)
+            return ApiResponse(status=status.HTTP_204_NO_CONTENT)
+        except ApplicationError as e:
+            return ApiResponse({"error": str(e)}, status=e.status_code)

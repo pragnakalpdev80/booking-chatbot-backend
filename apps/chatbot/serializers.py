@@ -20,6 +20,7 @@ class ConversationSessionSerializer(serializers.ModelSerializer):
             "id",
             "session_key",
             "user_email",
+            "provider",
             "created_at",
             "updated_at",
             "message_count",

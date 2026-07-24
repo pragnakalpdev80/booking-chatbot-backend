@@ -44,13 +44,14 @@ An internal reference model linking a Django User to a Google Calendar event.
 
 ```python
 class Booking(models.Model):
-    STATUS_CHOICES = [('confirmed', 'Confirmed'), ('cancelled', 'Cancelled'), ('rescheduled', 'Rescheduled')]
-    user = models.ForeignKey(User, on_delete=models.CASCADE, related_name="bookings")
+    email = models.EmailField(db_index=True)
+    provider = models.ForeignKey(User, on_delete=models.SET_NULL, null=True, related_name="bookings")
+    name = models.CharField(max_length=255, blank=True, default="")
     google_event_id = models.CharField(max_length=255, unique=True)
     start_time = models.DateTimeField()
     end_time = models.DateTimeField()
     reason = models.TextField(blank=True)
-    status = models.CharField(max_length=20, choices=STATUS_CHOICES, default='confirmed')
+    status = models.CharField(max_length=20, choices=BookingStatus.choices, default=BookingStatus.CONFIRMED)
 ```
 - **Note:** The actual event title, description, and attendees live on Google Calendar. This model just tracks ownership so users can manage their own bookings.
 
@@ -67,42 +68,53 @@ All Google Calendar write operations are dispatched asynchronously via **Celery*
 
 ---
 
-## 4. Endpoints & Views
+## 4. Services and Selectors
+
+The `calendar_app` strictly follows the Service/Selector pattern:
+- **`BookingService`**: Handles Google API interactions and local `Booking` mutations synchronously.
+- **`AvailabilitySelector`**: Resolves `freebusy` timeslots against `ProviderSettings`.
+- **`BookingSelector`**: Queries existing `Booking` references by email or provider.
+
+---
+
+## 5. Endpoints & Views
+
+All views return a standardized `ApiResponse`.
 
 ### Admin Routes (IsAdminUser)
 | Endpoint | Method | Action |
 |----------|--------|--------|
-| `/api/calendar/login/` | `GET` | Initiates Google OAuth consent flow using `google_auth_oauthlib.flow.Flow`. |
-| `/api/calendar/oauth2callback/` | `GET` | Exchanges code for tokens, encrypts them, and saves to `GoogleCredential`. |
-| `/api/calendar/events/` | `GET` | Lists upcoming events from the admin's primary calendar. |
-| `/api/admin/provider-settings/` | `PATCH` | Updates working hours. Payload: `{"work_start": "08:00:00"}` |
+| `/api/v1/calendar/login/` | `GET` | Initiates Google OAuth consent flow using `google_auth_oauthlib.flow.Flow`. |
+| `/api/v1/calendar/oauth2callback/` | `GET` | Exchanges code for tokens, encrypts them, and saves to `GoogleCredential`. |
+| `/api/v1/admin/provider-settings/` | `PATCH` | Updates working hours. Payload: `{"work_start": "08:00:00"}` |
 
-### User Routes (IsAuthenticated)
+### User Routes (AllowAny / Public)
 
-#### `GET /api/calendar/availability/`
+#### `GET /api/v1/calendar/availability/`
 Queries Google's `freebusy` API to find open times, filtering against `ProviderSettings`.
-- **Query Params:** `?date=2026-07-25`
+- **Query Params:** `?date=2026-07-25&provider_id=1`
 - **Response:**
   ```json
   {
-      "timezone": "UTC",
-      "available_slots": [
-          {"start": "2026-07-25T09:00:00Z", "end": "2026-07-25T09:30:00Z"},
-          {"start": "2026-07-25T10:00:00Z", "end": "2026-07-25T10:30:00Z"}
-      ]
+      "success": true,
+      "message": "",
+      "data": {
+          "timezone": "UTC",
+          "available_slots": [
+              {"start_time": "2026-07-25T09:00:00Z", "end_time": "2026-07-25T09:30:00Z"},
+              {"start_time": "2026-07-25T10:00:00Z", "end_time": "2026-07-25T10:30:00Z"}
+          ]
+      }
   }
   ```
 
-#### `POST /api/appointments/book/`
-Books a slot on the admin's calendar.
-- **Payload:** `{"start_time": "...", "end_time": "...", "reason": "General Checkup"}`
-- **Action:** Verifies slot is free, then calls `insert_google_calendar_event.delay()`.
+#### `POST /api/v1/appointments/book/`
+Books a slot on the admin's calendar for the anonymous user.
+- **Payload:** `{"email": "...", "start_time": "...", "end_time": "...", "reason": "General Checkup", "provider_id": 1}`
 
-#### `PATCH /api/appointments/<event_id>/reschedule/`
+#### `PATCH /api/v1/appointments/<event_id>/reschedule/`
 Moves an existing appointment.
 - **Payload:** `{"new_start_time": "...", "new_end_time": "..."}`
-- **Action:** Validates ownership via `Booking`, checks freebusy, calls `patch_google_calendar_event.delay()`.
 
-#### `DELETE /api/appointments/<event_id>/cancel/`
+#### `DELETE /api/v1/appointments/<event_id>/cancel/`
 Cancels an appointment.
-- **Action:** Validates ownership, calls `delete_google_calendar_event.delay()`.

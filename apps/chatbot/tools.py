@@ -239,9 +239,9 @@ TOOL_SCHEMAS = [
 # ─── Tool executor ────────────────────────────────────────────────────────────
 
 
-def _get_service():
+def _get_service(provider):
     try:
-        credential = GoogleCredential.objects.select_related("user").get()
+        credential = GoogleCredential.objects.select_related("user").get(user=provider)
     except GoogleCredential.DoesNotExist:
         raise ValueError(
             "The administrator has not linked their Google Calendar yet. "
@@ -251,14 +251,14 @@ def _get_service():
     return build("calendar", "v3", credentials=creds)
 
 
-def _check_freebusy(service, start_dt: datetime, end_dt: datetime) -> bool:
+def _check_freebusy(service, start_dt: datetime, end_dt: datetime, calendar_id: str) -> bool:
     body = {
         "timeMin": start_dt.isoformat(),
         "timeMax": end_dt.isoformat(),
-        "items": [{"id": "primary"}],
+        "items": [{"id": calendar_id}],
     }
     result = service.freebusy().query(body=body).execute()
-    busy = result.get("calendars", {}).get("primary", {}).get("busy", [])
+    busy = result.get("calendars", {}).get(calendar_id, {}).get("busy", [])
     return len(busy) == 0
 
 
@@ -341,8 +341,11 @@ def _lock_slot(session: ConversationSession, start_time: str) -> str:
     end_dt = start_dt + timedelta(minutes=SLOT_DURATION_MINUTES)
 
     # First, verify freebusy on Google Calendar to ensure it's actually free
-    service = _get_service()
-    if not _check_freebusy(service, start_dt, end_dt):
+    assert session.provider is not None
+    service = _get_service(session.provider)
+    assert session.provider is not None
+    ps = ProviderSettings.get_for_provider(session.provider)
+    if not _check_freebusy(service, start_dt, end_dt, ps.calendar_id):
         return json.dumps(
             {
                 "error": "This slot is no longer available on the calendar. "
@@ -425,7 +428,8 @@ def _release_slot(session: ConversationSession, start_time: str) -> str:
 
 def _get_available_slots(session: ConversationSession, date: str) -> str:
     logger.debug("Tool: get_available_slots — session %s, date %s", session.session_key, date)
-    ps = ProviderSettings.get_instance()
+    assert session.provider is not None
+    ps = ProviderSettings.get_for_provider(session.provider)
 
     try:
         query_date = datetime.strptime(date, "%Y-%m-%d").date()
@@ -447,21 +451,22 @@ def _get_available_slots(session: ConversationSession, date: str) -> str:
     end_of_day = datetime.combine(query_date, ps.work_end, tzinfo=tz)
     slot_delta = timedelta(minutes=SLOT_DURATION_MINUTES)
 
-    service = _get_service()
+    assert session.provider is not None
+    service = _get_service(session.provider)
     freebusy_result = (
         service.freebusy()
         .query(
             body={
                 "timeMin": start_of_day.isoformat(),
                 "timeMax": end_of_day.isoformat(),
-                "items": [{"id": "primary"}],
+                "items": [{"id": ps.calendar_id}],
             }
         )
         .execute()
     )
     logger.debug("Google API freebusy result: %s", json.dumps(freebusy_result))
 
-    busy_intervals = freebusy_result.get("calendars", {}).get("primary", {}).get("busy", [])
+    busy_intervals = freebusy_result.get("calendars", {}).get(ps.calendar_id, {}).get("busy", [])
 
     # Get active locks held by OTHER sessions
     active_locked_starts = set(
@@ -535,12 +540,14 @@ def _book_appointment(session: ConversationSession, start_time: str, reason: str
     # Enforce 30-min duration always
     end_dt = start_dt + timedelta(minutes=SLOT_DURATION_MINUTES)
 
-    service = _get_service()
-    if not _check_freebusy(service, start_dt, end_dt):
+    assert session.provider is not None
+    service = _get_service(session.provider)
+    assert session.provider is not None
+    ps = ProviderSettings.get_for_provider(session.provider)
+    if not _check_freebusy(service, start_dt, end_dt, ps.calendar_id):
         lock.delete()
         return json.dumps({"error": "The slot is no longer available. Please pick another time."})
 
-    ps = ProviderSettings.get_instance()
     event_body = {
         "summary": f"Appointment: {email}",
         "description": reason,
@@ -550,7 +557,9 @@ def _book_appointment(session: ConversationSession, start_time: str, reason: str
     }
 
     try:
-        created_event = service.events().insert(calendarId="primary", body=event_body).execute()
+        created_event = (
+            service.events().insert(calendarId=ps.calendar_id, body=event_body).execute()
+        )
         logger.debug("Google API insert event result: %s", json.dumps(created_event))
         google_event_id = created_event["id"]
 
@@ -614,18 +623,22 @@ def _reschedule_appointment(
 
     new_end = new_start + timedelta(minutes=SLOT_DURATION_MINUTES)
 
-    service = _get_service()
-    if not _check_freebusy(service, new_start, new_end):
+    assert session.provider is not None
+    service = _get_service(session.provider)
+    assert session.provider is not None
+    ps = ProviderSettings.get_for_provider(session.provider)
+    if not _check_freebusy(service, new_start, new_end, ps.calendar_id):
         return json.dumps({"error": "The new slot is not available. Please choose another time."})
 
-    ps = ProviderSettings.get_instance()
     patch_body = {
         "start": {"dateTime": new_start.isoformat(), "timeZone": ps.timezone},
         "end": {"dateTime": new_end.isoformat(), "timeZone": ps.timezone},
     }
 
     updated_event = (
-        service.events().patch(calendarId="primary", eventId=event_id, body=patch_body).execute()
+        service.events()
+        .patch(calendarId=ps.calendar_id, eventId=event_id, body=patch_body)
+        .execute()
     )
     logger.debug("Google API patch event result: %s", json.dumps(updated_event))
 
@@ -661,9 +674,12 @@ def _cancel_appointment(session: ConversationSession, event_id: str) -> str:
             {"error": f"No booking found with event ID {event_id} for email {email}."}
         )
 
-    service = _get_service()
+    assert session.provider is not None
+    service = _get_service(session.provider)
+    assert session.provider is not None
+    ps = ProviderSettings.get_for_provider(session.provider)
     try:
-        service.events().delete(calendarId="primary", eventId=event_id).execute()
+        service.events().delete(calendarId=ps.calendar_id, eventId=event_id).execute()
     except HttpError as exc:
         if exc.resp.status != 410:  # 410 = already gone, treat as success
             return json.dumps({"error": f"Google Calendar error: {exc}"})
@@ -717,7 +733,8 @@ def _list_my_appointments(
         .order_by("start_time")
     )
 
-    ps = ProviderSettings.get_instance()
+    assert session.provider is not None
+    ps = ProviderSettings.get_for_provider(session.provider)
     tz = ZoneInfo(ps.timezone)
 
     result = [

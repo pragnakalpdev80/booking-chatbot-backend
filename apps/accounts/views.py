@@ -11,8 +11,9 @@ import logging
 
 from rest_framework import status
 from rest_framework.permissions import AllowAny, IsAuthenticated
-from rest_framework.response import Response
 from rest_framework.views import APIView
+
+from common.api.response import ApiResponse
 
 from .serializers import MeSerializer, RegisterSerializer
 
@@ -31,7 +32,7 @@ class RegisterView(APIView):
         if serializer.is_valid():
             user = serializer.save()
             logger.info("New user registered: %s (id=%s)", user.username, user.pk)
-            return Response(
+            return ApiResponse(
                 {
                     "message": "Registration successful.",
                     "user_id": user.pk,
@@ -40,7 +41,7 @@ class RegisterView(APIView):
                 status=status.HTTP_201_CREATED,
             )
         logger.warning("User registration failed: %s", serializer.errors)
-        return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+        return ApiResponse(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
 
 
 class MeView(APIView):
@@ -51,4 +52,12 @@ class MeView(APIView):
     def get(self, request):
         logger.debug("MeView GET for user %s", request.user.username)
         serializer = MeSerializer(request.user)
-        return Response(serializer.data)
+        return ApiResponse(serializer.data)
+
+    def patch(self, request):
+        logger.debug("MeView PATCH for user %s", request.user.username)
+        serializer = MeSerializer(request.user, data=request.data, partial=True)
+        if serializer.is_valid():
+            serializer.save()
+            return ApiResponse(serializer.data)
+        return ApiResponse(serializer.errors, status=status.HTTP_400_BAD_REQUEST)

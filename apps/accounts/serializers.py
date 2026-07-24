@@ -75,9 +75,24 @@ class RegisterSerializer(serializers.ModelSerializer):
 class MeSerializer(serializers.ModelSerializer):
     """Retrieve own profile."""
 
-    profile = UserProfileSerializer(source="user_profile", read_only=True)
+    profile = UserProfileSerializer(source="user_profile")
 
     class Meta:
         model = User
         fields = ["id", "username", "email", "first_name", "last_name", "profile"]
-        read_only_fields = fields
+        read_only_fields = ["id", "username", "email"]
+
+    def update(self, instance, validated_data):
+        profile_data = validated_data.pop("user_profile", {})
+
+        instance.first_name = validated_data.get("first_name", instance.first_name)
+        instance.last_name = validated_data.get("last_name", instance.last_name)
+        instance.save()
+
+        if profile_data:
+            profile = instance.user_profile
+            profile.phone = profile_data.get("phone", profile.phone)
+            profile.date_of_birth = profile_data.get("date_of_birth", profile.date_of_birth)
+            profile.save()
+
+        return instance

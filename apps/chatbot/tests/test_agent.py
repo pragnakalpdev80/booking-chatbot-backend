@@ -9,13 +9,13 @@ from apps.chatbot.models import ConversationSession, MessageRole
 
 
 @pytest.fixture(autouse=True)
-def provider_settings(db):
-    return ProviderSettings.get_instance()
+def provider_settings(admin_user):
+    return ProviderSettings.get_for_provider(admin_user)
 
 
 @pytest.fixture
-def session(db):
-    return ConversationSession.objects.create()
+def session(admin_user):
+    return ConversationSession.objects.create(provider=admin_user)
 
 
 @pytest.mark.django_db

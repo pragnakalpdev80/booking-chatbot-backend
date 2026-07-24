@@ -21,6 +21,16 @@ class ConversationSession(models.Model):
     passed with every subsequent request. No user account is required.
     """
 
+    from django.contrib.auth.models import User
+
+    provider = models.ForeignKey(
+        User,
+        on_delete=models.CASCADE,
+        related_name="chat_sessions",
+        help_text="The doctor this session is bound to.",
+        null=True,  # Initially true to allow migration, but effectively required
+    )
+
     session_key = models.UUIDField(
         default=uuid.uuid4,
         unique=True,

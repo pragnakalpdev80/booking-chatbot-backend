@@ -18,18 +18,18 @@ from apps.chatbot.tools import execute_tool
 
 
 @pytest.fixture(autouse=True)
-def provider_settings(db):
-    return ProviderSettings.get_instance()
+def provider_settings(admin_user):
+    return ProviderSettings.get_for_provider(admin_user)
 
 
 @pytest.fixture
-def session(db):
-    return ConversationSession.objects.create()
+def session(admin_user):
+    return ConversationSession.objects.create(provider=admin_user)
 
 
 @pytest.fixture
-def session_with_email(db):
-    return ConversationSession.objects.create(user_email="user@example.com")
+def session_with_email(admin_user):
+    return ConversationSession.objects.create(user_email="user@example.com", provider=admin_user)
 
 
 @pytest.fixture

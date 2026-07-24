@@ -5,11 +5,11 @@ from .views import (
     AvailabilityView,
     BookAppointmentView,
     BookingsByEmailView,
-    CalendarEventDetailView,
-    CalendarEventsView,
     CancelAppointmentView,
     GoogleLoginView,
     GoogleOAuth2CallbackView,
+    ListProviderCalendarsView,
+    ProviderListView,
     ProviderSettingsView,
     RescheduleAppointmentView,
 )
@@ -21,12 +21,6 @@ calendar_patterns = [
         "calendar/oauth2callback/",
         GoogleOAuth2CallbackView.as_view(),
         name="calendar_oauth2callback",
-    ),
-    path("calendar/events/", CalendarEventsView.as_view(), name="calendar_events_list"),
-    path(
-        "calendar/events/<str:event_id>/",
-        CalendarEventDetailView.as_view(),
-        name="calendar_event_detail",
     ),
     path("calendar/availability/", AvailabilityView.as_view(), name="calendar_availability"),
 ]
@@ -52,6 +46,12 @@ admin_patterns = [
     path(
         "admin/provider-settings/", ProviderSettingsView.as_view(), name="admin_provider_settings"
     ),
+    path("admin/my-calendars/", ListProviderCalendarsView.as_view(), name="admin_my_calendars"),
 ]
 
-urlpatterns = calendar_patterns + appointment_patterns + admin_patterns
+# Providers
+provider_patterns = [
+    path("providers/", ProviderListView.as_view(), name="provider_list"),
+]
+
+urlpatterns = calendar_patterns + appointment_patterns + admin_patterns + provider_patterns

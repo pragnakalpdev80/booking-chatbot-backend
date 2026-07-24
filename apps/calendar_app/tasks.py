@@ -23,24 +23,26 @@ _RETRY_KWARGS = {
 RETRYABLE_STATUS_CODES = {429, 503, 500}
 
 
-def _get_service():
-    """Build an authenticated Google Calendar service using the single credential."""
+def _get_service(provider_user_id: int):
+    """Build an authenticated Google Calendar service using the provider's credential."""
     from .models import GoogleCredential
 
-    credential = GoogleCredential.objects.select_related("user").get()
+    credential = GoogleCredential.objects.select_related("user").get(user_id=provider_user_id)
     creds = credential.get_credentials()
     return build("calendar", "v3", credentials=creds)
 
 
 @shared_task(bind=True, **_RETRY_KWARGS)
-def task_insert_event(self, event_body: dict) -> dict:
+def task_insert_event(
+    self, event_body: dict, provider_user_id: int, calendar_id: str = "primary"
+) -> dict:
     """
-    Insert a new event on the doctor's primary calendar.
+    Insert a new event on the doctor's calendar.
     Returns the created event dict (including id and htmlLink).
     """
     try:
-        service = _get_service()
-        event = service.events().insert(calendarId="primary", body=event_body).execute()
+        service = _get_service(provider_user_id)
+        event = service.events().insert(calendarId=calendar_id, body=event_body).execute()
         logger.info("task_insert_event: created event %s", event.get("id"))
         return event
     except HttpError as exc:
@@ -58,15 +60,17 @@ def task_insert_event(self, event_body: dict) -> dict:
 
 
 @shared_task(bind=True, **_RETRY_KWARGS)
-def task_patch_event(self, event_id: str, patch_body: dict) -> dict:
+def task_patch_event(
+    self, event_id: str, patch_body: dict, provider_user_id: int, calendar_id: str = "primary"
+) -> dict:
     """
-    Patch (partial update) an existing event on the doctor's primary calendar.
+    Patch (partial update) an existing event on the doctor's calendar.
     """
     try:
-        service = _get_service()
+        service = _get_service(provider_user_id)
         event = (
             service.events()
-            .patch(calendarId="primary", eventId=event_id, body=patch_body)
+            .patch(calendarId=calendar_id, eventId=event_id, body=patch_body)
             .execute()
         )
         logger.info("task_patch_event: patched event %s", event_id)
@@ -86,14 +90,16 @@ def task_patch_event(self, event_id: str, patch_body: dict) -> dict:
 
 
 @shared_task(bind=True, **_RETRY_KWARGS)
-def task_cancel_event(self, event_id: str) -> None:
+def task_cancel_event(
+    self, event_id: str, provider_user_id: int, calendar_id: str = "primary"
+) -> None:
     """
-    Delete an event from the doctor's primary calendar.
+    Delete an event from the doctor's calendar.
     Idempotent: 410 Gone is treated as success.
     """
     try:
-        service = _get_service()
-        service.events().delete(calendarId="primary", eventId=event_id).execute()
+        service = _get_service(provider_user_id)
+        service.events().delete(calendarId=calendar_id, eventId=event_id).execute()
         logger.info("task_cancel_event: deleted event %s", event_id)
     except HttpError as exc:
         if exc.resp.status == 410:

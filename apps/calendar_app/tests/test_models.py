@@ -19,10 +19,11 @@ from apps.calendar_app.models import (
 
 @pytest.mark.django_db
 class TestBookingModel:
-    def test_create_booking_with_email(self):
+    def test_create_booking_with_email(self, admin_user):
         """Booking is created with email, no user FK required."""
         booking = Booking.objects.create(
             email="user@example.com",
+            provider=admin_user,
             name="Jane Doe",
             google_event_id="evt_001",
             start_time=datetime.datetime(2026, 8, 1, 10, 0, tzinfo=datetime.UTC),
@@ -33,11 +34,12 @@ class TestBookingModel:
         assert booking.email == "user@example.com"
         assert booking.status == BookingStatus.CONFIRMED
 
-    def test_multiple_bookings_same_email_allowed(self):
+    def test_multiple_bookings_same_email_allowed(self, admin_user):
         """Multiple bookings per email are permitted."""
         for i in range(3):
             Booking.objects.create(
                 email="multi@example.com",
+                provider=admin_user,
                 google_event_id=f"evt_{i}",
                 start_time=datetime.datetime(2026, 8, i + 1, 10, 0, tzinfo=datetime.UTC),
                 end_time=datetime.datetime(2026, 8, i + 1, 10, 30, tzinfo=datetime.UTC),
@@ -54,21 +56,23 @@ class TestBookingModel:
         assert "str@example.com" in str(booking)
         assert "evt_str" in str(booking)
 
-    def test_booking_status_default_confirmed(self):
+    def test_booking_status_default_confirmed(self, admin_user):
         booking = Booking.objects.create(
             email="status@example.com",
+            provider=admin_user,
             google_event_id="evt_status",
             start_time=datetime.datetime(2026, 8, 1, 10, 0, tzinfo=datetime.UTC),
             end_time=datetime.datetime(2026, 8, 1, 10, 30, tzinfo=datetime.UTC),
         )
         assert booking.status == BookingStatus.CONFIRMED
 
-    def test_google_event_id_is_unique(self):
+    def test_google_event_id_is_unique(self, admin_user):
         """Two bookings cannot share the same Google event ID."""
         from django.db import IntegrityError
 
         Booking.objects.create(
             email="a@example.com",
+            provider=admin_user,
             google_event_id="unique_evt",
             start_time=datetime.datetime(2026, 8, 1, 10, 0, tzinfo=datetime.UTC),
             end_time=datetime.datetime(2026, 8, 1, 10, 30, tzinfo=datetime.UTC),
@@ -76,6 +80,7 @@ class TestBookingModel:
 
         duplicate = Booking(
             email="b@example.com",
+            provider=admin_user,
             google_event_id="unique_evt",
             start_time=datetime.datetime(2026, 8, 2, 10, 0, tzinfo=datetime.UTC),
             end_time=datetime.datetime(2026, 8, 2, 10, 30, tzinfo=datetime.UTC),
@@ -86,19 +91,12 @@ class TestBookingModel:
 
 @pytest.mark.django_db
 class TestProviderSettingsModel:
-    def test_get_instance_creates_default(self):
-        ps = ProviderSettings.get_instance()
-        assert ps.pk == 1
+    def test_get_for_provider_creates_default(self, admin_user):
+        ps = ProviderSettings.get_for_provider(admin_user)
+        assert ps.user == admin_user
         assert ps.slot_duration == 30
         assert ps.work_days == [0, 1, 2, 3, 4]
-
-    def test_singleton_enforcement(self):
-        from django.core.exceptions import ValidationError
-
-        ProviderSettings.get_instance()
-        new_ps = ProviderSettings(provider_name="Second")
-        with pytest.raises(ValidationError):
-            new_ps.clean()
+        assert ps.calendar_id == "primary"
 
 
 @pytest.mark.django_db

@@ -152,7 +152,8 @@ def run_agentic_loop(session: ConversationSession, user_message_text: str) -> st
     )
 
     # 2. Build message history for Groq (rolling context)
-    ps = ProviderSettings.get_instance()
+    assert session.provider is not None
+    ps = ProviderSettings.get_for_provider(session.provider)
     system_prompt = _build_system_prompt(session, ps)
 
     recent_messages = list(session.messages.order_by("-timestamp")[:ROLLING_CONTEXT_LIMIT])

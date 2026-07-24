@@ -37,6 +37,7 @@ INSTALLED_APPS = [
     "apps.calendar_app",
     "apps.accounts",
     "apps.chatbot",
+    "apps.dashboard",
 ]
 
 # ─── Middleware ───────────────────────────────────────────────────────────────
