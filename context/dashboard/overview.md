@@ -20,7 +20,7 @@ The `dashboard` app does not define any models of its own. It relies on the `app
 ## 3. Services and Selectors
 
 - **`DashboardSelector`**: A selector class providing optimized queries for retrieving dashboard data.
-  - `get_appointments(provider_id, date_str)`: Retrieves all bookings for a provider, optionally filtered by a specific date.
+  - `get_appointments(provider_id, start_date_str, end_date_str, email_str)`: Retrieves all bookings for a provider, hardcoded to strictly filter by `status=CONFIRMED`, and optionally filtered by a date range (`start_date_str`, `end_date_str`) and a partial email match (`email_str`).
   - `get_stats(provider_id)`: Retrieves aggregated statistics for a provider (total, today, upcoming, and cancelled appointments).
 
 ---
@@ -31,7 +31,7 @@ All endpoints require JWT Authentication and return data wrapped in `ApiResponse
 
 | Endpoint | Method | Action |
 |----------|--------|--------|
-| `/api/v1/dashboard/appointments/` | `GET` | Returns a list of appointments for the authenticated provider. Supports `?date=YYYY-MM-DD` filtering. |
+| `/api/v1/dashboard/appointments/` | `GET` | Returns a list of strictly `CONFIRMED` appointments for the authenticated provider, including the user-supplied `reason` field. Supports `?start_date=YYYY-MM-DD`, `?end_date=YYYY-MM-DD`, and `?email=query` filtering. The frontend strictly enforces `start_date <= end_date` while allowing historical (past) dates. |
 | `/api/v1/dashboard/stats/` | `GET` | Returns aggregated statistics for the authenticated provider. |
 
 Example Response for `/api/v1/dashboard/stats/`:

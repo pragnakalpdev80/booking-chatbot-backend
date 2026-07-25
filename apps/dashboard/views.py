@@ -18,9 +18,13 @@ class DashboardAppointmentsView(APIView):
 
     def get(self, request):
         provider_id = request.user.id
-        date_str = request.query_params.get("date")
+        start_date_str = request.query_params.get("start_date")
+        end_date_str = request.query_params.get("end_date")
+        email_str = request.query_params.get("email")
 
-        appointments = DashboardSelector.get_appointments(provider_id, date_str)
+        appointments = DashboardSelector.get_appointments(
+            provider_id, start_date_str, end_date_str, email_str
+        )
         serializer = DashboardBookingSerializer(appointments, many=True)
         return ApiResponse(serializer.data)
 

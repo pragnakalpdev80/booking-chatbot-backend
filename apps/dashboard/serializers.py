@@ -11,6 +11,7 @@ class DashboardBookingSerializer(serializers.ModelSerializer):
             "email",
             "start_time",
             "end_time",
+            "reason",
             "status",
             "google_event_id",
             "created_at",

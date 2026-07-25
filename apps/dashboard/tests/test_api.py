@@ -21,6 +21,7 @@ class TestDashboardEndpoints:
             email="1@test.com",
             start_time=today,
             end_time=today + timedelta(minutes=30),
+            reason="Checkup",
             status=BookingStatus.CONFIRMED,
             google_event_id="evt1",
         )
@@ -47,12 +48,16 @@ class TestDashboardEndpoints:
         url = reverse("dashboard_appointments")
         response = auth_client.get(url)
         assert response.status_code == status.HTTP_200_OK
-        assert len(response.data["data"]) == 3
+        assert len(response.data["data"]) == 2
+
+        # Verify reason is included
+        assert "reason" in response.data["data"][0]
+        assert response.data["data"][0]["reason"] == "Checkup"
 
     def test_get_appointments_filtered(self, auth_client, user, setup_data):
         url = reverse("dashboard_appointments")
         today_str = timezone.now().strftime("%Y-%m-%d")
-        response = auth_client.get(f"{url}?date={today_str}")
+        response = auth_client.get(f"{url}?start_date={today_str}&end_date={today_str}")
         assert response.status_code == status.HTTP_200_OK
         assert len(response.data["data"]) == 1
 
