@@ -14,20 +14,20 @@ Six tools are available:
 import json
 import logging
 from datetime import datetime, timedelta
+from typing import Any
 from zoneinfo import ZoneInfo
 
 from django.db import OperationalError, transaction
 from django.utils.timezone import now
-from googleapiclient.discovery import build
 from googleapiclient.errors import HttpError
 
 from apps.calendar_app.models import (
     Booking,
     BookingStatus,
-    GoogleCredential,
     ProviderSettings,
     SlotLock,
 )
+from apps.calendar_app.services.gcal_client import check_freebusy, get_gcal_service
 
 from .models import ConversationSession
 
@@ -42,7 +42,7 @@ _EMAIL_NOT_COLLECTED_MSG = "Email not collected yet. Please ask the user for the
 
 # ─── Tool schemas ─────────────────────────────────────────────────────────────
 
-TOOL_SCHEMAS = [
+TOOL_SCHEMAS: list[dict[str, Any]] = [
     {
         "type": "function",
         "function": {
@@ -233,33 +233,33 @@ TOOL_SCHEMAS = [
             },
         },
     },
+    {
+        "type": "function",
+        "function": {
+            "name": "initiate_payment",
+            "description": (
+                "Initiate a payment for a locked slot. Call this AFTER lock_slot. "
+                "The system will return a [PAY: ...] tag which you "
+                "MUST forward directly to the user."
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "start_time": {
+                        "type": "string",
+                        "description": "The exact start_time of the locked slot (ISO 8601).",
+                    },
+                    "reason": {
+                        "type": "string",
+                        "description": "The reason for the appointment.",
+                    },
+                },
+                "required": ["start_time", "reason"],
+            },
+        },
+    },
 ]
-
-
 # ─── Tool executor ────────────────────────────────────────────────────────────
-
-
-def _get_service(provider):
-    try:
-        credential = GoogleCredential.objects.select_related("user").get(user=provider)
-    except GoogleCredential.DoesNotExist:
-        raise ValueError(
-            "The administrator has not linked their Google Calendar yet. "
-            "Tell the user that the booking service is currently unavailable."
-        ) from None
-    creds = credential.get_credentials()
-    return build("calendar", "v3", credentials=creds)
-
-
-def _check_freebusy(service, start_dt: datetime, end_dt: datetime, calendar_id: str) -> bool:
-    body = {
-        "timeMin": start_dt.isoformat(),
-        "timeMax": end_dt.isoformat(),
-        "items": [{"id": calendar_id}],
-    }
-    result = service.freebusy().query(body=body).execute()
-    busy = result.get("calendars", {}).get(calendar_id, {}).get("busy", [])
-    return len(busy) == 0
 
 
 def execute_tool(tool_name: str, tool_args: dict, session: ConversationSession) -> str:
@@ -279,6 +279,8 @@ def execute_tool(tool_name: str, tool_args: dict, session: ConversationSession) 
             return _get_available_slots(session, **tool_args)
         elif tool_name == "book_appointment":
             return _book_appointment(session, **tool_args)
+        elif tool_name == "initiate_payment":
+            return _initiate_payment(session, **tool_args)
         elif tool_name == "reschedule_appointment":
             return _reschedule_appointment(session, **tool_args)
         elif tool_name == "cancel_appointment":
@@ -342,10 +344,10 @@ def _lock_slot(session: ConversationSession, start_time: str) -> str:
 
     # First, verify freebusy on Google Calendar to ensure it's actually free
     assert session.provider is not None
-    service = _get_service(session.provider)
+    service = get_gcal_service(session.provider)
     assert session.provider is not None
     ps = ProviderSettings.get_for_provider(session.provider)
-    if not _check_freebusy(service, start_dt, end_dt, ps.calendar_id):
+    if not check_freebusy(service, start_dt, end_dt, ps.calendar_id):
         return json.dumps(
             {
                 "error": "This slot is no longer available on the calendar. "
@@ -355,6 +357,19 @@ def _lock_slot(session: ConversationSession, start_time: str) -> str:
 
     try:
         with transaction.atomic():
+            # Guard: refuse to lock if a CONFIRMED booking already exists at this time.
+            # This prevents the LLM from treating a successfully paid slot as free.
+            if Booking.objects.filter(
+                start_time=start_dt,
+                status=BookingStatus.CONFIRMED,
+            ).exists():
+                return json.dumps(
+                    {
+                        "error": "This slot already has a confirmed booking. "
+                        "Please choose another time."
+                    }
+                )
+
             # Release any existing active locks held by this session (so they don't hold
             # multiple slots)
             SlotLock.objects.filter(session_key=session.session_key, is_confirmed=False).delete()
@@ -452,7 +467,7 @@ def _get_available_slots(session: ConversationSession, date: str) -> str:
     slot_delta = timedelta(minutes=SLOT_DURATION_MINUTES)
 
     assert session.provider is not None
-    service = _get_service(session.provider)
+    service = get_gcal_service(session.provider)
     freebusy_result = (
         service.freebusy()
         .query(
@@ -516,6 +531,16 @@ def _book_appointment(session: ConversationSession, start_time: str, reason: str
     if not email:
         return json.dumps({"error": _EMAIL_NOT_COLLECTED_MSG})
 
+    assert session.provider is not None
+    _ps = ProviderSettings.get_for_provider(session.provider)
+    if _ps.payment_required:
+        return json.dumps(
+            {
+                "error": "This provider requires payment before confirming. "
+                "Use initiate_payment instead of book_appointment."
+            }
+        )
+
     try:
         start_dt = datetime.fromisoformat(start_time)
     except ValueError:
@@ -541,10 +566,10 @@ def _book_appointment(session: ConversationSession, start_time: str, reason: str
     end_dt = start_dt + timedelta(minutes=SLOT_DURATION_MINUTES)
 
     assert session.provider is not None
-    service = _get_service(session.provider)
+    service = get_gcal_service(session.provider)
     assert session.provider is not None
     ps = ProviderSettings.get_for_provider(session.provider)
-    if not _check_freebusy(service, start_dt, end_dt, ps.calendar_id):
+    if not check_freebusy(service, start_dt, end_dt, ps.calendar_id):
         lock.delete()
         return json.dumps({"error": "The slot is no longer available. Please pick another time."})
 
@@ -624,10 +649,10 @@ def _reschedule_appointment(
     new_end = new_start + timedelta(minutes=SLOT_DURATION_MINUTES)
 
     assert session.provider is not None
-    service = _get_service(session.provider)
+    service = get_gcal_service(session.provider)
     assert session.provider is not None
     ps = ProviderSettings.get_for_provider(session.provider)
-    if not _check_freebusy(service, new_start, new_end, ps.calendar_id):
+    if not check_freebusy(service, new_start, new_end, ps.calendar_id):
         return json.dumps({"error": "The new slot is not available. Please choose another time."})
 
     patch_body = {
@@ -675,7 +700,7 @@ def _cancel_appointment(session: ConversationSession, event_id: str) -> str:
         )
 
     assert session.provider is not None
-    service = _get_service(session.provider)
+    service = get_gcal_service(session.provider)
     assert session.provider is not None
     ps = ProviderSettings.get_for_provider(session.provider)
     try:
@@ -759,3 +784,28 @@ def _list_my_appointments(
             "count": len(result),
         }
     )
+
+
+def _initiate_payment(session: ConversationSession, start_time: str, reason: str) -> str:
+    from apps.payments.services.order_service import PaymentOrderService
+    from common.api.exceptions import ApplicationError
+
+    start_dt = datetime.fromisoformat(start_time)
+
+    try:
+        order = PaymentOrderService().create(session=session, start_time=start_dt, reason=reason)
+        # We output a special tag that the frontend will parse to show the payment card
+        return json.dumps(
+            {
+                "status": "success",
+                "message": (
+                    "Payment initiated. Forward this tag to the user: "
+                    f"[PAY:{order.mock_order_id}|{order.payment_url}]"
+                ),
+            }
+        )
+    except ApplicationError as exc:
+        return json.dumps({"error": str(exc)})
+    except Exception as exc:
+        logger.exception("Error initiating payment: %s", exc)
+        return json.dumps({"error": "Failed to initiate payment."})

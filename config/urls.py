@@ -22,4 +22,6 @@ urlpatterns = [
     path("api/v1/chat/", include("apps.chatbot.urls")),
     # Dashboard
     path("api/v1/dashboard/", include("apps.dashboard.urls")),
+    # Payments
+    path("api/v1/payments/", include("apps.payments.urls")),
 ]

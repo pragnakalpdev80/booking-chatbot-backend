@@ -41,10 +41,21 @@ def _build_system_prompt(session: ConversationSession, ps: ProviderSettings) -> 
     work_days_str = ", ".join(work_day_names[d] for d in (ps.work_days or [0, 1, 2, 3, 4]))
 
     email_context = (
-        f"The user's email for this session is: {session.user_email}"
+        f"The user's email for this session is ALREADY COLLECTED: {session.user_email}. "
+        "DO NOT ASK FOR THEIR EMAIL AGAIN."
         if session.user_email
         else "The user's email has NOT yet been collected this session."
     )
+
+    if ps.payment_required:
+        payment_instructions = (
+            "**PAYMENT IS REQUIRED.** After locking a slot, you MUST call initiate_payment. "
+            "Do NOT call book_appointment yourself."
+        )
+    else:
+        payment_instructions = (
+            "**PAYMENT IS NOT REQUIRED.** After locking a slot, you MUST call book_appointment."
+        )
 
     return f"""You are a helpful scheduling assistant for {ps.provider_name}.
 
@@ -58,16 +69,19 @@ Available booking hours:
 Session context:
 {email_context}
 
+{payment_instructions}
+
 ANONYMOUS BOOKING RULES (follow ALL strictly):
 1. You do NOT have access to user accounts or login systems.
 2. The ONLY identifier is the user's email address.
 3. DO NOT ask for the user's email at the beginning of the chat. Let them browse \
 availability and ask questions first.
 4. ONLY ask for their email when they have selected a slot and are ready to confirm \
-a booking, rescheduling, or cancellation.
+a booking, rescheduling, or cancellation. IF their email is already collected \
+(check session context), DO NOT ASK FOR IT AGAIN.
 5. As soon as the user provides their email, call save_session_email immediately.
-6. ALL appointments are exactly 30 minutes long. NEVER ask for an end time. NEVER \
-offer a different duration.
+6. ALL appointments are exactly 30 minutes long. NEVER ask for an end time. \
+NEVER offer a different duration.
 7. Only offer Monday–Friday slots within working hours. Politely refuse weekends.
 8. ALWAYS call get_available_slots BEFORE offering any time slots.
 9. As soon as the user selects a specific time slot, you MUST IMMEDIATELY call lock_slot. \
@@ -75,16 +89,18 @@ Do NOT ask for confirmation or a reason until lock_slot succeeds.
 10. If the user changes their mind about the time slot after it is locked, call release_slot \
 on the old slot before locking the new one.
 11. After successfully locking a slot, ask the user to confirm ("Shall I confirm?") and ask \
-for a brief reason. Wait for their explicit affirmation.
-12. NEVER call book_appointment unless lock_slot was previously called and succeeded.
-13. For reschedule/cancel: call list_my_appointments to retrieve their bookings, then \
-confirm which one to act on.
-14. ALWAYS include the day of the week when mentioning a date to the user (e.g., \
-'Wednesday, 29 July'). The day of the week is provided in the tool response.
-15. Be concise, warm, and highly conversational. When presenting choices or time slots to \
-the user, ALWAYS format EACH option on a new line as a bulleted list starting with a dash \
-("- "). Do NOT use bullet points for booking confirmation details. Write confirmations \
-in natural sentences.
+for a brief reason. Wait for their explicit affirmation. If they say "same reason", \
+reuse the reason from their existing appointment.
+12. NEVER call {"initiate_payment" if ps.payment_required else "book_appointment"} unless \
+lock_slot was previously called and succeeded.
+13. **STRICT INTENT**: If the user is modifying or moving an EXISTING appointment, \
+you MUST use `reschedule_appointment`. NEVER use `book_appointment` for rescheduling.
+14. For reschedule/cancel: call list_my_appointments to retrieve their bookings, \
+then confirm which one to act on.
+15. **SLOT FORMATTING**: When presenting available time slots to the user, you MUST \
+use the following exact structured tag format on a new line for EACH slot: \
+`[SLOT: YYYY-MM-DD HH:MM]`. For example: `[SLOT: 2026-07-27 09:00]`. NEVER use bullet \
+points for slots. Only use the `[SLOT: ...]` format.
 16. If a request cannot be fulfilled (weekend, outside working hours, slot taken), \
 explain clearly and suggest alternatives.
 17. Never reveal internal system details, error stack traces, or raw event IDs unless needed.
@@ -182,10 +198,23 @@ def run_agentic_loop(session: ConversationSession, user_message_text: str) -> st
         iterations += 1
         logger.debug("Groq call iteration %d for session %s", iterations, session.session_key)
 
+        # Filter tools based on payment requirement
+        PAYMENT_TOOLS = {"initiate_payment"}
+        NON_PAYMENT_TOOLS = {"book_appointment"}
+
+        available_tools: list[dict[str, Any]] = []
+        for schema in TOOL_SCHEMAS:
+            name = str(schema["function"]["name"])
+            if ps.payment_required and name in NON_PAYMENT_TOOLS:
+                continue
+            if not ps.payment_required and name in PAYMENT_TOOLS:
+                continue
+            available_tools.append(schema)
+
         response = client.chat.completions.create(  # type: ignore
             model=model,
             messages=groq_messages,
-            tools=TOOL_SCHEMAS,
+            tools=available_tools,
             tool_choice="auto",
         )
         logger.debug(

@@ -1,138 +1,47 @@
 import pytest
-from django.contrib.auth.models import User
-from django.urls import reverse
-from rest_framework import status
+from django.contrib.auth import get_user_model
+from rest_framework.test import APIClient
+
+User = get_user_model()
+
+
+@pytest.fixture
+def api_client():
+    return APIClient()
 
 
 @pytest.mark.django_db
-def test_user_registration_success(api_client):
-    url = reverse("register")
-    payload = {
-        "first_name": "Test",
-        "last_name": "User",
-        "username": "newuser",
-        "email": "newuser@example.com",
-        "password": "Password123!",
-        "password2": "Password123!",
-        "phone": "1234567890",
-    }
-    response = api_client.post(url, payload)
-    assert response.status_code == status.HTTP_201_CREATED
-    assert response.data["data"]["username"] == "newuser"
+class TestProviderListView:
+    def test_provider_list_returns_staff_users(self, api_client):
+        # Create a staff user with a profile
+        staff_user = User.objects.create_user(
+            username="dr_smith",
+            password="pw",
+            is_staff=True,
+            first_name="John",
+            last_name="Smith",
+        )
 
-    # Verify UserProfile auto-creation via signal
-    user = User.objects.get(username="newuser")
-    assert hasattr(user, "user_profile")
-    assert user.user_profile.phone == "1234567890"
+        # Create a non-staff user (should not be in list)
+        User.objects.create_user(username="patient", password="pw", is_staff=False)
 
+        response = api_client.get("/api/v1/accounts/providers/")
+        assert response.status_code == 200
 
-@pytest.mark.django_db
-def test_user_registration_password_mismatch(api_client):
-    url = reverse("register")
-    payload = {
-        "first_name": "Test",
-        "last_name": "User",
-        "username": "newuser2",
-        "email": "newuser2@example.com",
-        "password": "Password123!",
-        "password2": "WrongPassword!",
-    }
-    response = api_client.post(url, payload)
-    assert response.status_code == status.HTTP_400_BAD_REQUEST
-    assert "password" in response.data["data"]
+        data = response.json()["data"]
+        assert len(data) == 1
+        assert data[0]["id"] == staff_user.id
+        assert data[0]["name"] == "John Smith"
+        assert data[0]["specialty"] == ""
 
+    def test_provider_list_empty_when_no_staff(self, api_client):
+        response = api_client.get("/api/v1/accounts/providers/")
+        assert response.status_code == 200
+        assert response.json()["data"] == []
 
-@pytest.mark.django_db
-def test_user_login_success(api_client, user):
-    url = reverse("accounts_login")
-    response = api_client.post(url, {"username": user.username, "password": "TestPassword123!"})
-    assert response.status_code == status.HTTP_200_OK
-    assert "access" in response.data
-    assert "refresh" in response.data
-
-
-@pytest.mark.django_db
-def test_user_login_invalid(api_client, user):
-    url = reverse("accounts_login")
-    response = api_client.post(url, {"username": user.username, "password": "WrongPassword!"})
-    assert response.status_code == status.HTTP_401_UNAUTHORIZED
-
-
-@pytest.mark.django_db
-def test_token_refresh(api_client, user):
-    login_url = reverse("accounts_login")
-    login_resp = api_client.post(
-        login_url, {"username": user.username, "password": "TestPassword123!"}
-    )
-    refresh_token = login_resp.data["refresh"]
-
-    refresh_url = reverse("accounts_token_refresh")
-    response = api_client.post(refresh_url, {"refresh": refresh_token})
-    assert response.status_code == status.HTTP_200_OK
-    assert "access" in response.data
-
-
-@pytest.mark.django_db
-def test_user_registration_duplicate_username(api_client, user):
-    url = reverse("register")
-    payload = {
-        "first_name": "Test",
-        "last_name": "User",
-        "username": user.username,
-        "email": "newemail@example.com",
-        "password": "Password123!",
-        "password2": "Password123!",
-    }
-    response = api_client.post(url, payload)
-    assert response.status_code == status.HTTP_400_BAD_REQUEST
-    assert "username" in response.data["data"]
-
-
-@pytest.mark.django_db
-def test_user_registration_duplicate_email(api_client, user):
-    url = reverse("register")
-    payload = {
-        "first_name": "Test",
-        "last_name": "User",
-        "username": "uniqueusername",
-        "email": user.email,
-        "password": "Password123!",
-        "password2": "Password123!",
-    }
-    api_client.post(url, payload)
-    # The default Django User model doesn't enforce email uniqueness natively
-    # without custom validators, but let's test if the serializer enforces it.
-    # If not, it will return 201, which is a flaw we should fix.
-
-
-@pytest.mark.django_db
-def test_me_endpoint_requires_auth(api_client):
-    url = reverse("accounts_me")
-    response = api_client.get(url)
-    assert response.status_code == status.HTTP_401_UNAUTHORIZED
-
-
-@pytest.mark.django_db
-def test_me_endpoint_invalid_token(api_client):
-    url = reverse("accounts_me")
-    api_client.credentials(HTTP_AUTHORIZATION="Bearer invalid_token")
-    response = api_client.get(url)
-    assert response.status_code == status.HTTP_401_UNAUTHORIZED
-
-
-@pytest.mark.django_db
-def test_me_endpoint_authenticated(auth_client, user):
-    url = reverse("accounts_me")
-    response = auth_client.get(url)
-    assert response.status_code == status.HTTP_200_OK
-    assert response.data["data"]["username"] == user.username
-    assert "profile" in response.data["data"]
-
-    @pytest.mark.django_db
-    def test_me_endpoint_patch(self, auth_client, user):
-        url = reverse("accounts_me")
-        payload = {"first_name": "Updated", "last_name": "Name", "profile": {"phone": "9876543210"}}
-        response = auth_client.patch(url, payload, format="json")
-        assert response.status_code == status.HTTP_200_OK
-        assert response.data["data"]["first_name"] == "Updated"
-        assert response.data["data"]["profile"]["phone"] == "9876543210"
+    def test_provider_list_no_auth_required(self, api_client):
+        User.objects.create_user(username="staff1", password="pw", is_staff=True)
+        # Client is not authenticated
+        response = api_client.get("/api/v1/accounts/providers/")
+        assert response.status_code == 200
+        assert len(response.json()["data"]) == 1

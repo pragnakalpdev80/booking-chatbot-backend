@@ -18,8 +18,9 @@ Represents an ongoing chat thread linked to a specific user.
 
 ```python
 class ConversationSession(models.Model):
-    user = models.ForeignKey(User, on_delete=models.CASCADE, related_name="sessions")
-    session_id = models.UUIDField(default=uuid.uuid4, unique=True, editable=False)
+    session_key = models.UUIDField(default=uuid.uuid4, unique=True, editable=False, db_index=True)
+    user_email = models.EmailField(blank=True, null=True, db_index=True)
+    pending_slot_lock = models.JSONField(blank=True, null=True)
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 ```
@@ -62,11 +63,15 @@ Always confirm appointment details with the user before booking, rescheduling, o
 ### Available Tools (`tools.py`)
 The LLM is provided with a JSON schema defining 5 distinct tools it can use:
 
-1. **`get_available_slots`**: Queries `calendar_app` availability.
-2. **`book_appointment`**: Commits a booking to the calendar.
-3. **`reschedule_appointment`**: Modifies an existing booking.
-4. **`cancel_appointment`**: Deletes an existing booking.
-5. **`list_my_appointments`**: Retrieves user's `Booking` references.
+1. **`save_session_email`**: Persists the anonymous user's email into the session context.
+2. **`get_available_slots`**: Queries `calendar_app` availability.
+3. **`book_appointment`**: Commits a booking to the calendar.
+4. **`reschedule_appointment`**: Modifies an existing booking.
+5. **`cancel_appointment`**: Deletes an existing booking.
+6. **`list_my_appointments`**: Retrieves user's `Booking` references based on their email.
+7. **`initiate_payment`**: Instructs the frontend to trigger the `payments` flow (outputs the `[PAY...]` tag).
+
+> **Note on Payment Tools:** The system dynamically filters `book_appointment` and `initiate_payment`. They are **mutually exclusive** in the schema provided to the LLM. If `payment_required` is true, only `initiate_payment` is given; otherwise, only `book_appointment` is given.
 
 Example Schema (`book_appointment`):
 ```json
@@ -105,9 +110,9 @@ All responses are wrapped in `ApiResponse`.
 | Endpoint | Method | Payload / Action |
 |----------|--------|------------------|
 | `/api/v1/chat/sessions/` | `POST` | Generates a new `ConversationSession`. Returns `session_key`. Payload: `{"provider_id": 1}` |
-| `/api/v1/chat/sessions/<id>/messages/` | `GET` | Retrieves full history for a session, filtering out internal `tool` messages. |
-| `/api/v1/chat/sessions/<id>/` | `DELETE` | Deletes a session entirely. |
-| `/api/v1/chat/message/` | `POST` | Payload: `{"session_key": "...", "message": "Hi"}`. Triggers the Agentic Loop. |
+| `/api/v1/chat/sessions/<key>/history/` | `GET` | Retrieves full history for a session, filtering out internal `tool` messages. |
+| `/api/v1/chat/sessions/<key>/delete/` | `DELETE` | Deletes a session entirely. |
+| `/api/v1/chat/sessions/<key>/message/` | `POST` | Payload: `{"message": "Hi"}`. Triggers the Agentic Loop. |
 
 ---
 

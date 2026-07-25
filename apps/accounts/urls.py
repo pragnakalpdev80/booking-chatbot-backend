@@ -2,7 +2,7 @@
 from django.urls import path
 from rest_framework_simplejwt.views import TokenObtainPairView, TokenRefreshView
 
-from .views import MeView, RegisterView
+from .views import MeView, ProviderListView, RegisterView
 
 urlpatterns = [
     # User self-registration
@@ -13,4 +13,6 @@ urlpatterns = [
     path("token/refresh/", TokenRefreshView.as_view(), name="accounts_token_refresh"),
     # Retrieve own profile (requires JWT)
     path("me/", MeView.as_view(), name="accounts_me"),
+    # Public provider list
+    path("providers/", ProviderListView.as_view(), name="accounts_provider_list"),
 ]

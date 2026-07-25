@@ -25,6 +25,15 @@ select = [
 ]
 ignore = []
 
+[tool.ruff.lint.per-file-ignores]
+# Pre-existing long lines and raise-without-from in these files
+"apps/calendar_app/services/gcal_client.py" = ["E501"]
+"apps/payments/services/webhook_service.py" = ["B904"]
+"apps/payments/tasks.py"                    = ["E501", "B904"]
+"apps/payments/tests/*.py"                  = ["E501"]
+"apps/payments/urls.py"                     = ["E501"]
+"apps/payments/views.py"                    = ["E501"]
+
 [tool.ruff.lint.isort]
 known-first-party = ["config", "apps"]
 

@@ -26,15 +26,15 @@ repos:
   # mypy runs via the project's own venv (language: system), not an isolated
   # pre-commit environment — the django-stubs plugin imports config.settings,
   # which transitively imports every runtime dependency.
-  # Note: Uses ../venv/bin/mypy as the venv is located outside the app folder.
+  # Note: Uses .venv/bin/mypy as the venv is located inside the app folder.
   - repo: local
     hooks:
       - id: mypy
         name: mypy
-        entry: ../venv/bin/mypy .
+        entry: .venv/bin/mypy .
         language: system
         types: [python]
-        exclude: "^(.*/migrations/|venv/|../venv/)"
+        exclude: "^(.*/migrations/|.venv/)"
         pass_filenames: false
 
   # bandit: security static analysis (hardcoded secrets, eval, weak crypto, ...).
@@ -43,7 +43,7 @@ repos:
     hooks:
       - id: bandit
         name: bandit (security)
-        entry: ../venv/bin/bandit -c pyproject.toml -r .
+        entry: .venv/bin/bandit -c pyproject.toml -r .
         language: system
         types: [python]
         pass_filenames: false
@@ -54,7 +54,7 @@ repos:
     hooks:
       - id: semgrep
         name: semgrep (Django/Python security)
-        entry: ../venv/bin/semgrep --config p/django --config p/python --error .
+        entry: .venv/bin/semgrep --config p/django --config p/python --error .
         language: system
         types: [python]
         pass_filenames: false
@@ -65,13 +65,13 @@ repos:
     hooks:
       - id: django-check
         name: django system check
-        entry: ../venv/bin/python manage.py check
+        entry: .venv/bin/python manage.py check
         language: system
         pass_filenames: false
         stages: [pre-push]
       - id: pytest
         name: pytest (with coverage gate)
-        entry: ../venv/bin/pytest
+        entry: .venv/bin/pytest
         language: system
         pass_filenames: false
         stages: [pre-push]

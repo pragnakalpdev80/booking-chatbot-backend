@@ -21,8 +21,8 @@ def other_session(admin_user):
 
 @pytest.mark.django_db
 def test_lock_slot_success(mocker, session):
-    mocker.patch("apps.chatbot.tools._get_service")
-    mocker.patch("apps.chatbot.tools._check_freebusy", return_value=True)
+    mocker.patch("apps.chatbot.tools.get_gcal_service")
+    mocker.patch("apps.chatbot.tools.check_freebusy", return_value=True)
 
     start_time = (now() + timedelta(days=1)).replace(hour=10, minute=0, second=0, microsecond=0)
 
@@ -37,8 +37,8 @@ def test_lock_slot_success(mocker, session):
 
 @pytest.mark.django_db
 def test_lock_slot_conflict(mocker, session, other_session):
-    mocker.patch("apps.chatbot.tools._get_service")
-    mocker.patch("apps.chatbot.tools._check_freebusy", return_value=True)
+    mocker.patch("apps.chatbot.tools.get_gcal_service")
+    mocker.patch("apps.chatbot.tools.check_freebusy", return_value=True)
 
     start_time = (now() + timedelta(days=1)).replace(hour=10, minute=0, second=0, microsecond=0)
 
@@ -55,8 +55,8 @@ def test_lock_slot_conflict(mocker, session, other_session):
 
 @pytest.mark.django_db
 def test_release_slot(mocker, session):
-    mocker.patch("apps.chatbot.tools._get_service")
-    mocker.patch("apps.chatbot.tools._check_freebusy", return_value=True)
+    mocker.patch("apps.chatbot.tools.get_gcal_service")
+    mocker.patch("apps.chatbot.tools.check_freebusy", return_value=True)
 
     start_time = (now() + timedelta(days=1)).replace(hour=10, minute=0, second=0, microsecond=0)
 

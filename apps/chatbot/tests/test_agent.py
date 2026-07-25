@@ -1,3 +1,4 @@
+import datetime
 import json
 from unittest.mock import MagicMock, patch
 
@@ -150,3 +151,78 @@ class TestAgenticLoop:
 
         # Should have iterated 5 times
         assert mock_execute_tool.call_count == 5
+
+    @patch("apps.chatbot.agent.Groq")
+    @patch("apps.chatbot.agent.ProviderSettings.get_for_provider")
+    def test_book_appointment_excluded_when_payment_required(self, mock_get_ps, MockGroq, session):
+        """When payment_required is True, book_appointment must not be in available_tools."""
+        # Setup mock PS
+        mock_ps = MagicMock()
+        mock_ps.payment_required = True
+        mock_ps.timezone = "UTC"
+        mock_ps.work_days = [0, 1, 2, 3, 4]
+        mock_ps.work_start = datetime.time(9, 0)
+        mock_ps.work_end = datetime.time(17, 0)
+        mock_get_ps.return_value = mock_ps
+
+        mock_client = MagicMock()
+        MockGroq.return_value = mock_client
+
+        mock_choice = MagicMock()
+        mock_choice.finish_reason = "stop"
+        mock_choice.message.tool_calls = None
+        mock_choice.message.content = "Ok"
+
+        mock_response = MagicMock()
+        mock_response.choices = [mock_choice]
+        mock_client.chat.completions.create.return_value = mock_response
+
+        run_agentic_loop(session, "Hi")
+
+        # Get the tools arg passed to Groq
+        call_kwargs = mock_client.chat.completions.create.call_args[1]
+        available_tools = call_kwargs["tools"]
+        tool_names = [t["function"]["name"] for t in available_tools]
+
+        assert "initiate_payment" in tool_names
+        assert "book_appointment" not in tool_names
+
+    @patch("apps.chatbot.agent.Groq")
+    @patch("apps.chatbot.agent.ProviderSettings.get_for_provider")
+    def test_initiate_payment_excluded_when_payment_not_required(
+        self,
+        mock_get_ps,
+        MockGroq,
+        session,
+    ):
+        """When payment_required is False, initiate_payment must not be in available_tools."""
+        # Setup mock PS
+        mock_ps = MagicMock()
+        mock_ps.payment_required = False
+        mock_ps.timezone = "UTC"
+        mock_ps.work_days = [0, 1, 2, 3, 4]
+        mock_ps.work_start = datetime.time(9, 0)
+        mock_ps.work_end = datetime.time(17, 0)
+        mock_get_ps.return_value = mock_ps
+
+        mock_client = MagicMock()
+        MockGroq.return_value = mock_client
+
+        mock_choice = MagicMock()
+        mock_choice.finish_reason = "stop"
+        mock_choice.message.tool_calls = None
+        mock_choice.message.content = "Ok"
+
+        mock_response = MagicMock()
+        mock_response.choices = [mock_choice]
+        mock_client.chat.completions.create.return_value = mock_response
+
+        run_agentic_loop(session, "Hi")
+
+        # Get the tools arg passed to Groq
+        call_kwargs = mock_client.chat.completions.create.call_args[1]
+        available_tools = call_kwargs["tools"]
+        tool_names = [t["function"]["name"] for t in available_tools]
+
+        assert "book_appointment" in tool_names
+        assert "initiate_payment" not in tool_names

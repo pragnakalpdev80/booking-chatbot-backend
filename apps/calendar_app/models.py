@@ -151,6 +151,14 @@ class ProviderSettings(models.Model):
         default="Asia/Kolkata",
         help_text="IANA timezone for the clinic (e.g. Asia/Kolkata, America/New_York).",
     )
+    payment_required = models.BooleanField(
+        default=False,
+        help_text="If True, users must pay before Google Calendar slot is confirmed.",
+    )
+    booking_fee_paise = models.PositiveIntegerField(
+        default=10000,
+        help_text="Booking fee in paise (smallest INR unit). 10000 = ₹100.",
+    )
     updated_at = models.DateTimeField(auto_now=True)
 
     class Meta:
@@ -176,6 +184,8 @@ class ProviderSettings(models.Model):
                 "work_end": datetime.time(17, 0),
                 "slot_duration": 30,
                 "timezone": "Asia/Kolkata",
+                "payment_required": False,
+                "booking_fee_paise": 10000,
             },
         )
         return obj
@@ -185,6 +195,7 @@ class ProviderSettings(models.Model):
 
 
 class BookingStatus(models.TextChoices):
+    PENDING_PAYMENT = "pending_payment", "Pending Payment"
     CONFIRMED = "confirmed", "Confirmed"
     CANCELLED = "cancelled", "Cancelled"
     RESCHEDULED = "rescheduled", "Rescheduled"

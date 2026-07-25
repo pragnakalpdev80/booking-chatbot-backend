@@ -30,3 +30,9 @@ CORS_ALLOW_ALL_ORIGINS = True
 PASSWORD_HASHERS = [
     "django.contrib.auth.hashers.MD5PasswordHasher",
 ]
+
+# Disable DRF throttling limits for local/test execution
+REST_FRAMEWORK["DEFAULT_THROTTLE_RATES"] = {  # noqa: F405
+    "anon": "10000/minute",
+    "user": "10000/minute",
+}

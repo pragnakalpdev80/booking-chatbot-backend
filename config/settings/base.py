@@ -38,6 +38,7 @@ INSTALLED_APPS = [
     "apps.accounts",
     "apps.chatbot",
     "apps.dashboard",
+    "apps.payments",
 ]
 
 # ─── Middleware ───────────────────────────────────────────────────────────────
@@ -201,3 +202,8 @@ LOGGING = {
         "apps.chatbot": {"handlers": ["console"], "level": "DEBUG", "propagate": False},
     },
 }
+
+
+# Make Celery tasks run synchronously for local development without a worker
+CELERY_TASK_ALWAYS_EAGER = True
+CELERY_TASK_EAGER_PROPAGATES = True

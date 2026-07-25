@@ -44,7 +44,7 @@ def booking(db, session_with_email):
 
 @pytest.fixture
 def mock_service():
-    with patch("apps.chatbot.tools._get_service") as mock_get:
+    with patch("apps.chatbot.tools.get_gcal_service") as mock_get:
         svc = MagicMock()
         mock_get.return_value = svc
         svc.freebusy().query().execute.return_value = {"calendars": {"primary": {"busy": []}}}
@@ -182,6 +182,22 @@ class TestBookAppointmentTool:
             )
         )
         assert "error" in result
+
+    @patch("apps.chatbot.tools.ProviderSettings.get_for_provider")
+    def test_book_appointment_blocked_when_payment_required(self, mock_get_ps, session_with_email):
+        mock_ps = MagicMock()
+        mock_ps.payment_required = True
+        mock_get_ps.return_value = mock_ps
+
+        result = json.loads(
+            execute_tool(
+                "book_appointment",
+                {"start_time": "2026-08-04T10:00:00+05:30"},
+                session_with_email,
+            )
+        )
+        assert "error" in result
+        assert "initiate_payment instead" in result["error"]
 
 
 # ─── reschedule_appointment ───────────────────────────────────────────────────

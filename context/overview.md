@@ -13,6 +13,7 @@ A multi-tenant appointment scheduling chatbot leveraging Google Calendar.
 - `calendar_app`: Google Calendar OAuth, availability, and bookings.
 - `chatbot`: Groq AI agent for patient chat and scheduling.
 - `dashboard`: Doctor dashboard endpoints for analytics and schedule overview.
+- `payments`: Mock payment gateway simulating Razorpay integration with asynchronous webhook handling.
 
 ## Enforced Conventions
 - Views return `ApiResponse`.
