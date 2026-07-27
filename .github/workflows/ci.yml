@@ -65,7 +65,7 @@ jobs:
 
     - name: Run Bandit
       run: |
-        bandit -r apps/
+        bandit -c pyproject.toml -r apps/
 
     - name: Run Pytest
       run: |
