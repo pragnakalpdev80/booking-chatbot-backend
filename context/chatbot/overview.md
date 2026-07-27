@@ -36,11 +36,13 @@ class Message(models.Model):
         ("system", "System"),
         ("tool", "Tool"),
     ]
-    session = models.ForeignKey(ConversationSession, on_delete=models.CASCADE, related_name="messages")
+    session = models.ForeignKey(
+        ConversationSession, on_delete=models.CASCADE, related_name="messages"
+    )
     role = models.CharField(max_length=10, choices=ROLE_CHOICES)
     content = models.TextField()
     tool_call_id = models.CharField(max_length=255, blank=True, null=True)
-    name = models.CharField(max_length=255, blank=True, null=True) # Tool name
+    name = models.CharField(max_length=255, blank=True, null=True)  # Tool name
     timestamp = models.DateTimeField(auto_now_add=True)
 ```
 
@@ -54,8 +56,8 @@ Every time a message is sent, a dynamic system prompt is built, injecting real-t
 ```python
 # snippet from agent.py
 system_prompt = f"""You are a helpful scheduling assistant for {ps.provider_name}.
-Current date and time: {timezone.now().astimezone(tz).strftime('%Y-%m-%d %H:%M:%S')} ({ps.timezone}).
-Bookable hours are: {work_days_str}, from {ps.work_start.strftime('%H:%M')} to {ps.work_end.strftime('%H:%M')}, in {ps.slot_duration}-minute slots.
+Current date and time: {timezone.now().astimezone(tz).strftime("%Y-%m-%d %H:%M:%S")} ({ps.timezone}).
+Bookable hours are: {work_days_str}, from {ps.work_start.strftime("%H:%M")} to {ps.work_end.strftime("%H:%M")}, in {ps.slot_duration}-minute slots.
 You are speaking with: {user.get_full_name() or user.username}.
 Always confirm appointment details with the user before booking, rescheduling, or cancelling."""
 ```

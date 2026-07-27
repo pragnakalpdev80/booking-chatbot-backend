@@ -64,13 +64,17 @@ An internal reference model linking a Django User to a Google Calendar event.
 ```python
 class Booking(models.Model):
     email = models.EmailField(db_index=True)
-    provider = models.ForeignKey(User, on_delete=models.SET_NULL, null=True, related_name="bookings")
+    provider = models.ForeignKey(
+        User, on_delete=models.SET_NULL, null=True, related_name="bookings"
+    )
     name = models.CharField(max_length=255, blank=True, default="")
     google_event_id = models.CharField(max_length=255, unique=True, null=True, blank=True)
     start_time = models.DateTimeField()
     end_time = models.DateTimeField()
     reason = models.TextField(blank=True)
-    status = models.CharField(max_length=20, choices=BookingStatus.choices, default=BookingStatus.CONFIRMED)
+    status = models.CharField(
+        max_length=20, choices=BookingStatus.choices, default=BookingStatus.CONFIRMED
+    )
 ```
 - **Note:** The actual event title, description, and attendees live on Google Calendar. This model just tracks ownership so users can manage their own bookings.
 - **Statuses:** `CONFIRMED`, `CANCELLED`, `PENDING_PAYMENT`.
