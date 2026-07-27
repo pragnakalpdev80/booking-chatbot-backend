@@ -104,7 +104,7 @@ class TestPaymentWebhookService:
         assert payment_order.status == PaymentStatus.FAILED
 
         booking = payment_order.booking
-        assert booking.status == BookingStatus.CANCELLED
+        assert booking.status == BookingStatus.FAILED
 
         assert not SlotLock.objects.filter(id=slot_lock.id).exists()
 

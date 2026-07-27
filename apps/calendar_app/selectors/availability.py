@@ -8,7 +8,6 @@ from googleapiclient.errors import HttpError
 
 from apps.calendar_app.models import ProviderSettings
 from apps.calendar_app.utils import (
-    SLOT_DURATION_MINUTES,
     _build_service,
     _get_admin_credential,
 )
@@ -23,12 +22,25 @@ class AvailabilitySelector(BaseSelector):
         ps = ProviderSettings.get_for_provider(provider)
         tz = ZoneInfo(ps.timezone)
 
-        if query_date.weekday() not in (ps.work_days or [0, 1, 2, 3, 4]):
+        # 1. Holiday Check
+        if ps.holidays.filter(date=query_date).exists():
             return [], ps.timezone
 
-        start_of_day = datetime.combine(query_date, ps.work_start, tzinfo=tz)
-        end_of_day = datetime.combine(query_date, ps.work_end, tzinfo=tz)
-        slot_delta = timedelta(minutes=SLOT_DURATION_MINUTES)
+        # 2. Day Schedule Check
+        weekday_str = str(query_date.weekday())
+        day_schedule = ps.day_schedules.get(weekday_str)
+        if not day_schedule or not day_schedule.get("is_active"):
+            return [], ps.timezone
+
+        try:
+            work_start = datetime.strptime(day_schedule["start"], "%H:%M").time()
+            work_end = datetime.strptime(day_schedule["end"], "%H:%M").time()
+        except (ValueError, KeyError):
+            return [], ps.timezone
+
+        start_of_day = datetime.combine(query_date, work_start, tzinfo=tz)
+        end_of_day = datetime.combine(query_date, work_end, tzinfo=tz)
+        slot_delta = timedelta(minutes=ps.slot_duration)
 
         try:
             cred = _get_admin_credential(provider)
@@ -57,11 +69,23 @@ class AvailabilitySelector(BaseSelector):
             freebusy_result.get("calendars", {}).get(ps.calendar_id, {}).get("busy", [])
         )
 
+        # Fetch break times for this weekday
+        breaks = ps.break_times.filter(weekday=query_date.weekday())
+        break_intervals = []
+        for b in breaks:
+            b_start = datetime.combine(query_date, b.start, tzinfo=tz)
+            b_end = datetime.combine(query_date, b.end, tzinfo=tz)
+            break_intervals.append((b_start, b_end))
+
         def _is_free(slot_start: datetime, slot_end: datetime) -> bool:
+            # Check Google Calendar busy intervals
             for b in busy_intervals:
                 b_start = datetime.fromisoformat(b["start"].replace("Z", "+00:00"))
                 b_end = datetime.fromisoformat(b["end"].replace("Z", "+00:00"))
-                # Overlap check
+                if slot_start < b_end and slot_end > b_start:
+                    return False
+            # Check custom Break Times
+            for b_start, b_end in break_intervals:
                 if slot_start < b_end and slot_end > b_start:
                     return False
             return True

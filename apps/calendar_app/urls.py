@@ -9,6 +9,8 @@ from .views import (
     GoogleLoginView,
     GoogleOAuth2CallbackView,
     ListProviderCalendarsView,
+    ProviderBreakTimesView,
+    ProviderHolidaysView,
     ProviderListView,
     ProviderSettingsView,
     RescheduleAppointmentView,
@@ -45,6 +47,16 @@ appointment_patterns = [
 admin_patterns = [
     path(
         "admin/provider-settings/", ProviderSettingsView.as_view(), name="admin_provider_settings"
+    ),
+    path(
+        "admin/provider-settings/breaks/",
+        ProviderBreakTimesView.as_view(),
+        name="admin_provider_breaks",
+    ),
+    path(
+        "admin/provider-settings/holidays/",
+        ProviderHolidaysView.as_view(),
+        name="admin_provider_holidays",
     ),
     path("admin/my-calendars/", ListProviderCalendarsView.as_view(), name="admin_my_calendars"),
 ]

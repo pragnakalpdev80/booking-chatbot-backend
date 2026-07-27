@@ -453,18 +453,35 @@ def _get_available_slots(session: ConversationSession, date: str) -> str:
 
     tz = ZoneInfo(ps.timezone)
 
-    # Enforce Mon–Fri
-    if query_date.weekday() not in (ps.work_days or [0, 1, 2, 3, 4]):
+    # 1. Holiday Check
+    if ps.holidays.filter(date=query_date).exists():
         return json.dumps(
             {
                 "available_slots": [],
-                "message": "Appointments are only available Monday to Friday.",
+                "message": "The clinic is closed on this date (Holiday).",
             }
         )
 
-    start_of_day = datetime.combine(query_date, ps.work_start, tzinfo=tz)
-    end_of_day = datetime.combine(query_date, ps.work_end, tzinfo=tz)
-    slot_delta = timedelta(minutes=SLOT_DURATION_MINUTES)
+    # 2. Day Schedule Check
+    weekday_str = str(query_date.weekday())
+    day_schedule = ps.day_schedules.get(weekday_str)
+    if not day_schedule or not day_schedule.get("is_active"):
+        return json.dumps(
+            {
+                "available_slots": [],
+                "message": "Appointments are not available on this day of the week.",
+            }
+        )
+
+    try:
+        work_start = datetime.strptime(day_schedule["start"], "%H:%M").time()
+        work_end = datetime.strptime(day_schedule["end"], "%H:%M").time()
+    except (ValueError, KeyError):
+        return json.dumps({"available_slots": [], "message": "Invalid schedule configuration."})
+
+    start_of_day = datetime.combine(query_date, work_start, tzinfo=tz)
+    end_of_day = datetime.combine(query_date, work_end, tzinfo=tz)
+    slot_delta = timedelta(minutes=ps.slot_duration)
 
     assert session.provider is not None
     service = get_gcal_service(session.provider)
@@ -483,6 +500,14 @@ def _get_available_slots(session: ConversationSession, date: str) -> str:
 
     busy_intervals = freebusy_result.get("calendars", {}).get(ps.calendar_id, {}).get("busy", [])
 
+    # Fetch custom breaks
+    breaks = ps.break_times.filter(weekday=query_date.weekday())
+    break_intervals = []
+    for b in breaks:
+        b_start = datetime.combine(query_date, b.start, tzinfo=tz)
+        b_end = datetime.combine(query_date, b.end, tzinfo=tz)
+        break_intervals.append((b_start, b_end))
+
     # Get active locks held by OTHER sessions
     active_locked_starts = set(
         SlotLock.objects.filter(
@@ -499,10 +524,16 @@ def _get_available_slots(session: ConversationSession, date: str) -> str:
     current = start_of_day
     while current + slot_delta <= end_of_day:
         slot_end = current + slot_delta
-        # Only offer slots that are in the future, free on Google Calendar, and not locked
-        # by someone else
+        # Only offer slots that are in the future, free on Google Calendar, not a break, and not locked by someone else
+        is_break = False
+        for b_start, b_end in break_intervals:
+            if current < b_end and slot_end > b_start:
+                is_break = True
+                break
+
         if (
             current >= now_tz
+            and not is_break
             and _is_slot_free(busy_intervals, current, slot_end)
             and current not in active_locked_starts
         ):
@@ -516,7 +547,7 @@ def _get_available_slots(session: ConversationSession, date: str) -> str:
             "date": date,
             "day_of_week": query_date.strftime("%A"),
             "timezone": ps.timezone,
-            "slot_duration_minutes": SLOT_DURATION_MINUTES,
+            "slot_duration_minutes": ps.slot_duration,
             "available_slots": slots,
             "count": len(slots),
             "message": message,
@@ -709,7 +740,11 @@ def _cancel_appointment(session: ConversationSession, event_id: str) -> str:
         if exc.resp.status != 410:  # 410 = already gone, treat as success
             return json.dumps({"error": f"Google Calendar error: {exc}"})
 
-    booking.status = BookingStatus.CANCELLED
+    booking.status = (
+        BookingStatus.FAILED
+        if booking.status == BookingStatus.PENDING_PAYMENT
+        else BookingStatus.CANCELLED
+    )
     booking.save(update_fields=["status", "updated_at"])
 
     logger.info("Chatbot cancelled: email=%s event=%s", email, event_id)

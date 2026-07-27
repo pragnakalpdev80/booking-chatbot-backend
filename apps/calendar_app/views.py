@@ -41,7 +41,9 @@ from .serializers import (
     AvailableSlotSerializer,
     BookAppointmentSerializer,
     BookingSerializer,
+    BreakTimeSerializer,
     CancelSerializer,
+    HolidaySerializer,
     ProviderSettingsSerializer,
     RescheduleSerializer,
 )
@@ -306,6 +308,42 @@ class ProviderSettingsView(APIView):
         serializer = ProviderSettingsSerializer(ps, data=request.data, partial=True)
         if serializer.is_valid():
             serializer.save()
+            return ApiResponse(serializer.data)
+        return ApiResponse(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+
+
+class ProviderBreakTimesView(APIView):
+    """PUT /api/admin/provider-settings/breaks/ (admin only)"""
+
+    permission_classes = [IsAdminUser]
+
+    def put(self, request):
+        ps = ProviderSettings.get_for_provider(request.user)
+        serializer = BreakTimeSerializer(data=request.data.get("breaks", []), many=True)
+        if serializer.is_valid():
+            from django.db import transaction
+
+            with transaction.atomic():
+                ps.break_times.all().delete()
+                serializer.save(provider_settings=ps)
+            return ApiResponse(serializer.data)
+        return ApiResponse(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+
+
+class ProviderHolidaysView(APIView):
+    """PUT /api/admin/provider-settings/holidays/ (admin only)"""
+
+    permission_classes = [IsAdminUser]
+
+    def put(self, request):
+        ps = ProviderSettings.get_for_provider(request.user)
+        serializer = HolidaySerializer(data=request.data.get("holidays", []), many=True)
+        if serializer.is_valid():
+            from django.db import transaction
+
+            with transaction.atomic():
+                ps.holidays.all().delete()
+                serializer.save(provider_settings=ps)
             return ApiResponse(serializer.data)
         return ApiResponse(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
 

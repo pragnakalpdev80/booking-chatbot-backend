@@ -9,7 +9,6 @@ Booking           — lightweight reference table linking an anonymous user (ema
                     this model only tracks the reference + status.
 """
 
-import datetime
 import json
 import logging
 
@@ -130,21 +129,22 @@ class ProviderSettings(models.Model):
         default="Dr. Smith",
         help_text="Service/provider name — injected into the chatbot system prompt.",
     )
-    work_days = models.JSONField(
-        default=list,
-        help_text="List of weekday integers (0=Mon … 6=Sun) when the clinic is open.",
+
+    day_schedules = models.JSONField(
+        default=dict,
+        help_text="Per-day working hours. Keys are weekday strings '0'–'6'.",
     )
-    work_start = models.TimeField(
-        default=datetime.time(9, 0),
-        help_text="Start of working hours (local time).",
-    )
-    work_end = models.TimeField(
-        default=datetime.time(17, 0),
-        help_text="End of working hours (local time).",
-    )
+
+    class SlotDurationChoices(models.IntegerChoices):
+        MIN_15 = 15, "15 Minutes"
+        MIN_30 = 30, "30 Minutes"
+        MIN_45 = 45, "45 Minutes"
+        MIN_60 = 60, "60 Minutes"
+
     slot_duration = models.IntegerField(
-        default=30,
-        help_text="Appointment slot duration in minutes. Always 30.",
+        choices=SlotDurationChoices.choices,
+        default=SlotDurationChoices.MIN_30,
+        help_text="Appointment slot duration in minutes.",
     )
     timezone = models.CharField(
         max_length=64,
@@ -174,21 +174,68 @@ class ProviderSettings(models.Model):
         Return the settings instance for a specific provider,
         creating a default if it doesn't exist.
         """
+        default_schedule = {
+            str(i): {
+                "is_active": i < 5,
+                "start": "09:00",
+                "end": "17:00",
+            }
+            for i in range(7)
+        }
+
         obj, _ = cls.objects.get_or_create(
             user=user,
             defaults={
                 "provider_name": f"Dr. {user.last_name or user.username}",
                 "calendar_id": "primary",
-                "work_days": [0, 1, 2, 3, 4],
-                "work_start": datetime.time(9, 0),
-                "work_end": datetime.time(17, 0),
-                "slot_duration": 30,
+                "day_schedules": default_schedule,
+                "slot_duration": cls.SlotDurationChoices.MIN_30,
                 "timezone": "Asia/Kolkata",
                 "payment_required": False,
                 "booking_fee_paise": 10000,
             },
         )
         return obj
+
+
+# ─── Settings Child Models ────────────────────────────────────────────────────
+
+
+class BreakTime(models.Model):
+    provider_settings = models.ForeignKey(
+        ProviderSettings,
+        on_delete=models.CASCADE,
+        related_name="break_times",
+    )
+    weekday = models.IntegerField(
+        choices=[(i, d) for i, d in enumerate(["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"])]
+    )
+    start = models.TimeField()
+    end = models.TimeField()
+    label = models.CharField(max_length=100, blank=True, default="Break")
+
+    class Meta:
+        ordering = ["weekday", "start"]
+
+    def __str__(self) -> str:
+        return f"{self.get_weekday_display()} Break ({self.start} - {self.end})"
+
+
+class Holiday(models.Model):
+    provider_settings = models.ForeignKey(
+        ProviderSettings,
+        on_delete=models.CASCADE,
+        related_name="holidays",
+    )
+    date = models.DateField(db_index=True)
+    label = models.CharField(max_length=255, blank=True, default="Holiday")
+
+    class Meta:
+        ordering = ["date"]
+        unique_together = [("provider_settings", "date")]
+
+    def __str__(self) -> str:
+        return f"Holiday on {self.date}: {self.label}"
 
 
 # ─── Booking ──────────────────────────────────────────────────────────────────
@@ -199,6 +246,7 @@ class BookingStatus(models.TextChoices):
     CONFIRMED = "confirmed", "Confirmed"
     CANCELLED = "cancelled", "Cancelled"
     RESCHEDULED = "rescheduled", "Rescheduled"
+    FAILED = "failed", "Failed"
 
 
 class Booking(models.Model):

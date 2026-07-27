@@ -5,7 +5,33 @@ Serializers for Google Calendar events, ProviderSettings, and anonymous Booking 
 
 from rest_framework import serializers
 
-from .models import Booking, ProviderSettings
+from .models import Booking, BreakTime, Holiday, ProviderSettings
+
+
+class BreakTimeSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = BreakTime
+        fields = ["id", "weekday", "start", "end", "label"]
+        read_only_fields = ["id"]
+
+    def validate(self, data):
+        if data["start"] >= data["end"]:
+            raise serializers.ValidationError("Start time must be before end time.")
+        return data
+
+
+class HolidaySerializer(serializers.ModelSerializer):
+    class Meta:
+        model = Holiday
+        fields = ["id", "date", "label"]
+        read_only_fields = ["id"]
+
+    def validate_date(self, value):
+        from django.utils import timezone
+
+        if value < timezone.now().date():
+            raise serializers.ValidationError("Holiday date cannot be in the past.")
+        return value
 
 
 class AvailableSlotSerializer(serializers.Serializer):
@@ -16,27 +42,29 @@ class AvailableSlotSerializer(serializers.Serializer):
 
 
 class ProviderSettingsSerializer(serializers.ModelSerializer):
+    break_times = BreakTimeSerializer(many=True, read_only=True)
+    holidays = HolidaySerializer(many=True, read_only=True)
+
     class Meta:
         model = ProviderSettings
         fields = [
             "id",
             "provider_name",
-            "work_days",
-            "work_start",
-            "work_end",
+            "day_schedules",
             "slot_duration",
             "timezone",
             "updated_at",
+            "break_times",
+            "holidays",
         ]
-        read_only_fields = ["id", "updated_at"]
+        read_only_fields = ["id", "updated_at", "break_times", "holidays"]
 
 
 class ProviderListSerializer(serializers.ModelSerializer):
     """Read-only representation of a provider for the frontend directory."""
 
     provider_name = serializers.CharField(source="provider_settings.provider_name", read_only=True)
-    work_start = serializers.TimeField(source="provider_settings.work_start", read_only=True)
-    work_end = serializers.TimeField(source="provider_settings.work_end", read_only=True)
+    day_schedules = serializers.JSONField(source="provider_settings.day_schedules", read_only=True)
     timezone = serializers.CharField(source="provider_settings.timezone", read_only=True)
 
     class Meta:
@@ -46,8 +74,7 @@ class ProviderListSerializer(serializers.ModelSerializer):
         fields = [
             "id",
             "provider_name",
-            "work_start",
-            "work_end",
+            "day_schedules",
             "timezone",
         ]
 

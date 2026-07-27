@@ -7,7 +7,6 @@ from googleapiclient.errors import HttpError
 from apps.calendar_app.models import Booking, BookingStatus, ProviderSettings
 from apps.calendar_app.tasks import task_cancel_event, task_patch_event
 from apps.calendar_app.utils import (
-    SLOT_DURATION_MINUTES,
     _build_service,
     _check_freebusy,
     _get_admin_credential,
@@ -25,9 +24,10 @@ class BookingService(BaseService):
     ) -> dict:
         ps = ProviderSettings.get_for_provider(provider)
 
-        if start_time.weekday() not in (ps.work_days or [0, 1, 2, 3, 4]):
+        day_schedule = ps.day_schedules.get(str(start_time.weekday()))
+        if not day_schedule or not day_schedule.get("is_active"):
             raise ApplicationError(
-                "Appointments are only available Monday to Friday.", status_code=400
+                "Appointments are not available on this day of the week.", status_code=400
             )
 
         try:
@@ -39,7 +39,7 @@ class BookingService(BaseService):
         if not _check_freebusy(
             service,
             start_time,
-            start_time + timedelta(minutes=SLOT_DURATION_MINUTES),
+            start_time + timedelta(minutes=ps.slot_duration),
             ps.calendar_id,
         ):
             raise ApplicationError(
@@ -51,7 +51,7 @@ class BookingService(BaseService):
             "description": f"Reason: {reason}",
             "start": {"dateTime": start_time.isoformat(), "timeZone": ps.timezone},
             "end": {
-                "dateTime": (start_time + timedelta(minutes=SLOT_DURATION_MINUTES)).isoformat(),
+                "dateTime": (start_time + timedelta(minutes=ps.slot_duration)).isoformat(),
                 "timeZone": ps.timezone,
             },
             "attendees": [{"email": email}],
@@ -73,7 +73,7 @@ class BookingService(BaseService):
             name=name,
             reason=reason,
             start_time=start_time,
-            end_time=start_time + timedelta(minutes=SLOT_DURATION_MINUTES),
+            end_time=start_time + timedelta(minutes=ps.slot_duration),
             google_event_id=google_event_id,
             status=BookingStatus.CONFIRMED,
         )
@@ -97,9 +97,10 @@ class BookingService(BaseService):
 
         assert booking.provider is not None
         ps = ProviderSettings.get_for_provider(booking.provider)
-        if new_start_time.weekday() not in (ps.work_days or [0, 1, 2, 3, 4]):
+        day_schedule = ps.day_schedules.get(str(new_start_time.weekday()))
+        if not day_schedule or not day_schedule.get("is_active"):
             raise ApplicationError(
-                "Appointments are only available Monday to Friday.", status_code=400
+                "Appointments are not available on this day of the week.", status_code=400
             )
 
         try:
@@ -111,7 +112,7 @@ class BookingService(BaseService):
         if not _check_freebusy(
             service,
             new_start_time,
-            new_start_time + timedelta(minutes=SLOT_DURATION_MINUTES),
+            new_start_time + timedelta(minutes=ps.slot_duration),
             ps.calendar_id,
         ):
             raise ApplicationError("The requested new slot is not available.", status_code=409)
@@ -119,7 +120,7 @@ class BookingService(BaseService):
         patch_body = {
             "start": {"dateTime": new_start_time.isoformat(), "timeZone": ps.timezone},
             "end": {
-                "dateTime": (new_start_time + timedelta(minutes=SLOT_DURATION_MINUTES)).isoformat(),
+                "dateTime": (new_start_time + timedelta(minutes=ps.slot_duration)).isoformat(),
                 "timeZone": ps.timezone,
             },
         }
@@ -127,7 +128,7 @@ class BookingService(BaseService):
         task_patch_event.delay(event_id, patch_body, booking.provider_id)
 
         booking.start_time = new_start_time
-        booking.end_time = new_start_time + timedelta(minutes=SLOT_DURATION_MINUTES)
+        booking.end_time = new_start_time + timedelta(minutes=ps.slot_duration)
         booking.status = BookingStatus.RESCHEDULED
         booking.save(update_fields=["start_time", "end_time", "status", "updated_at"])
 
@@ -151,7 +152,11 @@ class BookingService(BaseService):
         assert booking.provider is not None
         task_cancel_event.delay(event_id, booking.provider_id)
 
-        booking.status = BookingStatus.CANCELLED
+        booking.status = (
+            BookingStatus.FAILED
+            if booking.status == BookingStatus.PENDING_PAYMENT
+            else BookingStatus.CANCELLED
+        )
         booking.save(update_fields=["status", "updated_at"])
 
         logger.info("Booking cancelled: email=%s event=%s", email, event_id)

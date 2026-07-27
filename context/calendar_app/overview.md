@@ -20,10 +20,29 @@ Stores the administrative configuration for the calendar (e.g., working hours, s
 class ProviderSettings(models.Model):
     provider_name = models.CharField(max_length=255, default="Default Provider")
     timezone = models.CharField(max_length=50, default="UTC")
-    work_start = models.TimeField(default=time(9, 0))
-    work_end = models.TimeField(default=time(17, 0))
-    work_days = ArrayField(models.IntegerField(), default=list) # 0=Mon, 4=Fri
-    slot_duration = models.IntegerField(default=30) # minutes
+    day_schedules = models.JSONField(default=dict)
+    slot_duration = models.IntegerField(choices=SlotDurationChoices.choices, default=30)
+    payment_required = models.BooleanField(default=False)
+```
+
+### `BreakTime`
+Defines recurring unbookable intervals for a specific weekday.
+```python
+class BreakTime(models.Model):
+    provider_settings = models.ForeignKey(ProviderSettings, related_name="break_times")
+    weekday = models.IntegerField(choices=WeekdayChoices.choices)
+    start = models.TimeField()
+    end = models.TimeField()
+    label = models.CharField(default="Break")
+```
+
+### `Holiday`
+Defines specific calendar dates where the provider is completely unavailable.
+```python
+class Holiday(models.Model):
+    provider_settings = models.ForeignKey(ProviderSettings, related_name="holidays")
+    date = models.DateField(db_index=True)
+    label = models.CharField(default="Holiday")
 ```
 
 ### `GoogleCredential`
@@ -99,7 +118,9 @@ All views return a standardized `ApiResponse`.
 |----------|--------|--------|
 | `/api/v1/calendar/login/` | `GET` | Initiates Google OAuth consent flow using `google_auth_oauthlib.flow.Flow`. |
 | `/api/v1/calendar/oauth2callback/` | `GET` | Exchanges code for tokens, encrypts them, and saves to `GoogleCredential`. |
-| `/api/v1/admin/provider-settings/` | `PATCH` | Updates working hours. Payload: `{"work_start": "08:00:00"}` |
+| `/api/v1/admin/provider-settings/` | `PATCH` | Updates base settings and `day_schedules`. |
+| `/api/v1/admin/provider-settings/breaks/` | `PUT` | Replaces the provider's recurring breaks. |
+| `/api/v1/admin/provider-settings/holidays/` | `PUT` | Replaces the provider's holidays/days off. |
 
 ### User Routes (AllowAny / Public)
 

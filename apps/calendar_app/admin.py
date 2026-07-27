@@ -1,7 +1,7 @@
 # calendar_app/admin.py
 from django.contrib import admin
 
-from .models import Booking, GoogleCredential, ProviderSettings, SlotLock
+from .models import Booking, BreakTime, GoogleCredential, Holiday, ProviderSettings, SlotLock
 
 
 @admin.register(GoogleCredential)
@@ -15,12 +15,22 @@ class ProviderSettingsAdmin(admin.ModelAdmin):
     list_display = [
         "provider_name",
         "timezone",
-        "work_start",
-        "work_end",
         "slot_duration",
         "updated_at",
     ]
     readonly_fields = ["updated_at"]
+
+
+@admin.register(BreakTime)
+class BreakTimeAdmin(admin.ModelAdmin):
+    list_display = ["provider_settings", "weekday", "start", "end", "label"]
+    list_filter = ["weekday"]
+
+
+@admin.register(Holiday)
+class HolidayAdmin(admin.ModelAdmin):
+    list_display = ["provider_settings", "date", "label"]
+    list_filter = ["date"]
 
 
 @admin.register(Booking)

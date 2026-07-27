@@ -95,7 +95,9 @@ class TestProviderSettingsModel:
         ps = ProviderSettings.get_for_provider(admin_user)
         assert ps.user == admin_user
         assert ps.slot_duration == 30
-        assert ps.work_days == [0, 1, 2, 3, 4]
+        assert "1" in ps.day_schedules
+        assert ps.day_schedules["1"]["is_active"] is True
+        assert ps.day_schedules["5"]["is_active"] is False
         assert ps.calendar_id == "primary"
 
 

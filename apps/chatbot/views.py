@@ -17,6 +17,7 @@ from rest_framework import serializers, status
 from rest_framework.permissions import AllowAny
 from rest_framework.views import APIView
 
+from apps.chatbot.agent import GREETING_OPTIONS, _build_greeting_message
 from apps.chatbot.services.agentic_service import AgenticService
 from apps.chatbot.services.session_service import ChatSessionService
 from common.api.exceptions import ApplicationError
@@ -50,10 +51,22 @@ class StartSessionView(APIView):
 
         try:
             session = ChatSessionService.start_session(provider_id)
-            return ApiResponse(
-                ConversationSessionSerializer(session).data,
-                status=status.HTTP_201_CREATED,
-            )
+
+            # Resolve provider name for the greeting message
+            from apps.calendar_app.models import ProviderSettings
+
+            try:
+                ps = ProviderSettings.get_for_provider(session.provider)
+                provider_name = ps.provider_name
+            except Exception:  # noqa: BLE001
+                provider_name = "your provider"
+
+            response_data = {
+                **ConversationSessionSerializer(session).data,
+                "greeting": _build_greeting_message(provider_name),
+                "greeting_options": GREETING_OPTIONS,
+            }
+            return ApiResponse(response_data, status=status.HTTP_201_CREATED)
         except ApplicationError as e:
             return ApiResponse({"error": str(e)}, status=e.status_code)
 

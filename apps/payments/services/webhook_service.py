@@ -41,7 +41,7 @@ class PaymentWebhookService(BaseService):
         order.save(update_fields=["status", "updated_at"])
 
         booking = order.booking
-        booking.status = BookingStatus.CANCELLED
+        booking.status = BookingStatus.FAILED
         booking.save(update_fields=["status", "updated_at"])
 
         # Release the slot lock so others can book

@@ -1,4 +1,3 @@
-import datetime
 import json
 from unittest.mock import MagicMock, patch
 
@@ -145,12 +144,13 @@ class TestAgenticLoop:
         response_text = run_agentic_loop(session, "Find a slot")
 
         # It should exit gracefully with the fallback message
-        assert (
-            response_text == "I'm sorry, I wasn't able to process your request. Please try again."
+        assert response_text == (
+            "I'm sorry, I wasn't able to fully process your request. "
+            "Please try rephrasing or start a new conversation."
         )
 
-        # Should have iterated 5 times
-        assert mock_execute_tool.call_count == 5
+        # Should have iterated MAX_TOOL_ITERATIONS (8) times
+        assert mock_execute_tool.call_count == 8
 
     @patch("apps.chatbot.agent.Groq")
     @patch("apps.chatbot.agent.ProviderSettings.get_for_provider")
@@ -160,9 +160,8 @@ class TestAgenticLoop:
         mock_ps = MagicMock()
         mock_ps.payment_required = True
         mock_ps.timezone = "UTC"
-        mock_ps.work_days = [0, 1, 2, 3, 4]
-        mock_ps.work_start = datetime.time(9, 0)
-        mock_ps.work_end = datetime.time(17, 0)
+        mock_ps.day_schedules = {"0": {"is_active": True, "start": "09:00", "end": "17:00"}}
+        mock_ps.slot_duration = 30
         mock_get_ps.return_value = mock_ps
 
         mock_client = MagicMock()
@@ -200,9 +199,8 @@ class TestAgenticLoop:
         mock_ps = MagicMock()
         mock_ps.payment_required = False
         mock_ps.timezone = "UTC"
-        mock_ps.work_days = [0, 1, 2, 3, 4]
-        mock_ps.work_start = datetime.time(9, 0)
-        mock_ps.work_end = datetime.time(17, 0)
+        mock_ps.day_schedules = {"0": {"is_active": True, "start": "09:00", "end": "17:00"}}
+        mock_ps.slot_duration = 30
         mock_get_ps.return_value = mock_ps
 
         mock_client = MagicMock()

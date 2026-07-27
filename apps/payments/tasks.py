@@ -29,7 +29,7 @@ def finalize_booking_task(self, payment_order_pk: int) -> None:
 
     if not check_freebusy(service, booking.start_time, booking.end_time, ps.calendar_id):
         order.status = PaymentStatus.FAILED
-        booking.status = BookingStatus.CANCELLED
+        booking.status = BookingStatus.FAILED
         order.save(update_fields=["status", "updated_at"])
         booking.save(update_fields=["status", "updated_at"])
         return

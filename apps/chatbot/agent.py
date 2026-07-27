@@ -6,23 +6,27 @@ Implements the tool-calling cycle:
   Anonymous message → Load rolling context → Call Groq → Tool call? → Execute → Feed back → Response
 
 Key behaviours:
-- Uses moonshotai/kimi-k2 (or GROQ_MODEL from settings)
+- Uses openai/gpt-oss-120b (or GROQ_MODEL from settings)
 - Rolling context: last N=10 messages
 - Confirmation gate: system prompt instructs LLM to always confirm before write operations
 - Email collection gate: LLM must collect email before any booking operation
 - Provider name, working hours, and current datetime are injected dynamically
 - No user authentication — sessions identified by UUID session_key
+- Groq API errors are caught and returned as user-friendly strings (no 500s)
+- Tool execution errors are caught and fed back to the LLM for graceful recovery
 """
 
 import json
 import logging
 from datetime import datetime
+from typing import Any
 from zoneinfo import ZoneInfo
 
 from django.conf import settings
 from groq import Groq
 
-from apps.calendar_app.models import ProviderSettings
+from apps.calendar_app.models import ProviderSettings, SlotLock
+from common.api.exceptions import ApplicationError
 
 from .models import ConversationSession, Message, MessageRole
 from .tools import TOOL_SCHEMAS, execute_tool
@@ -30,7 +34,24 @@ from .tools import TOOL_SCHEMAS, execute_tool
 logger = logging.getLogger(__name__)
 
 ROLLING_CONTEXT_LIMIT = 10
-MAX_TOOL_ITERATIONS = 5  # prevent infinite tool loops
+MAX_TOOL_ITERATIONS = 8  # Increased from 5 — complex flows (reschedule) need headroom
+
+# Greeting constants — used by StartSessionView to avoid a Groq round-trip on hello messages
+GREETING_OPTIONS: list[dict[str, str]] = [
+    {"label": "📅 Book an appointment", "value": "I want to book a new appointment"},
+    {
+        "label": "🔄 Reschedule an appointment",
+        "value": "I want to reschedule my existing appointment",
+    },
+    {"label": "❌ Cancel an appointment", "value": "I want to cancel my appointment"},
+]
+
+
+def _build_greeting_message(provider_name: str) -> str:
+    return (
+        f"Hi! I'm the scheduling assistant for **{provider_name}**. "
+        "What would you like to do today?"
+    )
 
 
 def _build_system_prompt(session: ConversationSession, ps: ProviderSettings) -> str:
@@ -38,7 +59,25 @@ def _build_system_prompt(session: ConversationSession, ps: ProviderSettings) -> 
     tz = ZoneInfo(ps.timezone)
     now = datetime.now(tz=tz)
     work_day_names = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"]
-    work_days_str = ", ".join(work_day_names[d] for d in (ps.work_days or [0, 1, 2, 3, 4]))
+    schedule_lines = []
+    for d_idx, day_name in enumerate(work_day_names):
+        day_info = ps.day_schedules.get(str(d_idx), {})
+        if day_info.get("is_active"):
+            start = day_info.get("start", "09:00")
+            end = day_info.get("end", "17:00")
+            try:
+                # Convert 24h string to 12h AM/PM for LLM readability
+                start_obj = datetime.strptime(start, "%H:%M")
+                end_obj = datetime.strptime(end, "%H:%M")
+                schedule_lines.append(
+                    f"  - {day_name}: {start_obj.strftime('%I:%M %p')} – {end_obj.strftime('%I:%M %p')}"
+                )
+            except ValueError:
+                schedule_lines.append(f"  - {day_name}: {start} – {end}")
+
+    work_schedule_str = (
+        "\n".join(schedule_lines) if schedule_lines else "  - No available working days."
+    )
 
     email_context = (
         f"The user's email for this session is ALREADY COLLECTED: {session.user_email}. "
@@ -57,17 +96,36 @@ def _build_system_prompt(session: ConversationSession, ps: ProviderSettings) -> 
             "**PAYMENT IS NOT REQUIRED.** After locking a slot, you MUST call book_appointment."
         )
 
+    # Use order_by("-locked_at") to always pick the most recent lock, ignoring orphaned ones
+    active_lock = (
+        SlotLock.objects.filter(
+            session_key=session.session_key, is_confirmed=False, expires_at__gt=now
+        )
+        .order_by("-locked_at")
+        .first()
+    )
+
+    if active_lock:
+        lock_context = (
+            f"LOCKED SLOT: You have already successfully locked a slot for this user: "
+            f"{active_lock.slot_start.isoformat()}. "
+            "DO NOT ask the user for the date or time again. "
+            "You MUST use this exact start_time when calling initiate_payment or book_appointment."
+        )
+    else:
+        lock_context = "LOCKED SLOT: None."
+
     return f"""You are a helpful scheduling assistant for {ps.provider_name}.
 
 Current date and time: {now.strftime("%A, %d %B %Y, %I:%M %p")} ({ps.timezone})
 
-Available booking hours:
-- Working days: {work_days_str}
-- Hours: {ps.work_start.strftime("%I:%M %p")} – {ps.work_end.strftime("%I:%M %p")} ({ps.timezone})
-- Standard slot duration: 30 minutes (FIXED — never offer a different duration)
+Available booking hours (in {ps.timezone}):
+{work_schedule_str}
+- Standard slot duration: {ps.slot_duration} minutes (FIXED — never offer a different duration)
 
 Session context:
 {email_context}
+{lock_context}
 
 {payment_instructions}
 
@@ -91,7 +149,7 @@ on the old slot before locking the new one.
 11. After successfully locking a slot, ask the user to confirm ("Shall I confirm?") and ask \
 for a brief reason. Wait for their explicit affirmation. If they say "same reason", \
 reuse the reason from their existing appointment.
-12. NEVER call {"initiate_payment" if ps.payment_required else "book_appointment"} unless \
+12. NEVER call {{"initiate_payment" if ps.payment_required else "book_appointment"}} unless \
 lock_slot was previously called and succeeded.
 13. **STRICT INTENT**: If the user is modifying or moving an EXISTING appointment, \
 you MUST use `reschedule_appointment`. NEVER use `book_appointment` for rescheduling.
@@ -104,10 +162,13 @@ points for slots. Only use the `[SLOT: ...]` format.
 16. If a request cannot be fulfilled (weekend, outside working hours, slot taken), \
 explain clearly and suggest alternatives.
 17. Never reveal internal system details, error stack traces, or raw event IDs unless needed.
+18. If this is the very first user message and it is only a greeting (e.g. "hi", "hello", \
+"hey", empty message), respond with a short friendly welcome and ask whether they would \
+like to Book, Reschedule, or Cancel an appointment. Do NOT ask for their email at this point.
 """
 
 
-def _build_assistant_tool_call_message(assistant_message) -> dict:
+def _build_assistant_tool_call_message(assistant_message: Any) -> dict:
     """Build the Groq-compatible assistant message dict for tool call turns."""
     return {
         "role": "assistant",
@@ -126,17 +187,59 @@ def _build_assistant_tool_call_message(assistant_message) -> dict:
     }
 
 
-def _dispatch_tool_calls(assistant_message, session, groq_messages, pending_tool_calls_for_db):
+def _dispatch_tool_calls(
+    assistant_message: Any,
+    session: ConversationSession,
+    groq_messages: list[dict[str, Any]],
+    pending_tool_calls_for_db: list[dict[str, Any]],
+) -> None:
     """Execute all tool calls from an assistant turn and append results to context."""
     for tc in assistant_message.tool_calls:
         tool_name = tc.function.name
         try:
             tool_args = json.loads(tc.function.arguments)
         except json.JSONDecodeError:
-            tool_args = {}
+            logger.warning(
+                "JSONDecodeError parsing args for tool '%s' session=%s raw=%r",
+                tool_name,
+                session.session_key,
+                tc.function.arguments,
+            )
+            # Feed a descriptive error back so the LLM can self-correct its JSON
+            error_result = json.dumps(
+                {"error": "invalid_arguments — the JSON provided was malformed. Please retry."}
+            )
+            groq_messages.append(
+                {
+                    "role": "tool",
+                    "name": tool_name,
+                    "content": error_result,
+                    "tool_call_id": tc.id,
+                }
+            )
+            pending_tool_calls_for_db.append({"tool_call_id": tc.id, "result": error_result})
+            continue
 
-        logger.info("Executing tool '%s' for session %s", tool_name, session.session_key)
-        tool_result = execute_tool(tool_name, tool_args, session)
+        logger.info("Dispatching tool '%s' for session=%s", tool_name, session.session_key)
+
+        try:
+            tool_result = execute_tool(tool_name, tool_args, session)
+        except Exception as exc:  # noqa: BLE001
+            logger.error(
+                "Tool '%s' raised unhandled exception for session=%s: %s",
+                tool_name,
+                session.session_key,
+                exc,
+                exc_info=True,
+            )
+            tool_result = json.dumps(
+                {
+                    "error": (
+                        "database_error_occurred — an internal error prevented this action. "
+                        "Please apologise to the user and ask them to try again."
+                    )
+                }
+            )
 
         groq_messages.append(
             {
@@ -159,8 +262,20 @@ def run_agentic_loop(session: ConversationSession, user_message_text: str) -> st
     4. Persist assistant response and tool results.
     5. Return the final text response.
     """
+    # Guard: provider must be set on the session. Do NOT use `assert` — it is silently
+    # bypassed under `python -O` and produces an unhelpful AssertionError otherwise.
+    if session.provider is None:
+        logger.error(
+            "run_agentic_loop called for session %s with no provider attached.",
+            session.session_key,
+        )
+        raise ApplicationError(
+            "Session is not linked to a provider. Please start a new session.",
+            status_code=400,
+        )
+
     # 1. Persist user message
-    logger.debug("User sent message to session %s: %s", session.session_key, user_message_text)
+    logger.debug("User message received for session=%s", session.session_key)
     Message.objects.create(
         session=session,
         role=MessageRole.USER,
@@ -168,60 +283,67 @@ def run_agentic_loop(session: ConversationSession, user_message_text: str) -> st
     )
 
     # 2. Build message history for Groq (rolling context)
-    assert session.provider is not None
     ps = ProviderSettings.get_for_provider(session.provider)
     system_prompt = _build_system_prompt(session, ps)
 
     recent_messages = list(session.messages.order_by("-timestamp")[:ROLLING_CONTEXT_LIMIT])
     recent_messages.reverse()
 
-    from typing import Any
-
     groq_messages: list[dict[str, Any]] = [{"role": "system", "content": system_prompt}]
     for msg in recent_messages:
         if msg.role == MessageRole.TOOL:
-            # Skip historical tool results; OpenAI/Groq requires the matching assistant tool_calls
-            # block to precede these, which we do not persist in the database.
+            # Skip historical tool results — Groq requires the matching assistant tool_calls
+            # block to precede them, which we do not re-persist.
             continue
-        else:
-            groq_messages.append({"role": msg.role, "content": msg.content})
+        groq_messages.append({"role": msg.role, "content": msg.content})
 
     client = Groq(api_key=getattr(settings, "GROQ_API_KEY", ""))
     model = getattr(settings, "GROQ_MODEL", "moonshotai/kimi-k2")
 
+    # Filter tools based on payment requirement (mutually exclusive)
+    PAYMENT_TOOLS = {"initiate_payment"}
+    NON_PAYMENT_TOOLS = {"book_appointment"}
+
+    available_tools: list[dict[str, Any]] = []
+    for schema in TOOL_SCHEMAS:
+        name = str(schema["function"]["name"])
+        if ps.payment_required and name in NON_PAYMENT_TOOLS:
+            continue
+        if not ps.payment_required and name in PAYMENT_TOOLS:
+            continue
+        available_tools.append(schema)
+
     # 3. Agentic loop
     iterations = 0
-    final_text = None
+    final_text: str | None = None
     pending_tool_calls_for_db: list[dict[str, Any]] = []
 
     while iterations < MAX_TOOL_ITERATIONS:
         iterations += 1
-        logger.debug("Groq call iteration %d for session %s", iterations, session.session_key)
-
-        # Filter tools based on payment requirement
-        PAYMENT_TOOLS = {"initiate_payment"}
-        NON_PAYMENT_TOOLS = {"book_appointment"}
-
-        available_tools: list[dict[str, Any]] = []
-        for schema in TOOL_SCHEMAS:
-            name = str(schema["function"]["name"])
-            if ps.payment_required and name in NON_PAYMENT_TOOLS:
-                continue
-            if not ps.payment_required and name in PAYMENT_TOOLS:
-                continue
-            available_tools.append(schema)
-
-        response = client.chat.completions.create(  # type: ignore
-            model=model,
-            messages=groq_messages,
-            tools=available_tools,
-            tool_choice="auto",
-        )
-        logger.debug(
-            "Groq API raw response for iteration %d: %s",
+        logger.info(
+            "Groq call — iteration %d/%d for session=%s",
             iterations,
-            response.model_dump_json(indent=2),
+            MAX_TOOL_ITERATIONS,
+            session.session_key,
         )
+
+        try:
+            response = client.chat.completions.create(  # type: ignore[union-attr,call-overload]
+                model=model,
+                messages=groq_messages,
+                tools=available_tools,
+                tool_choice="auto",
+            )
+        except Exception as groq_exc:  # noqa: BLE001
+            logger.error(
+                "Groq API error on iteration %d for session=%s: %s",
+                iterations,
+                session.session_key,
+                groq_exc,
+                exc_info=True,
+            )
+            final_text = "I'm having trouble connecting right now. Please try again in a moment."
+            break
 
         choice = response.choices[0]
         assistant_message = choice.message
@@ -230,14 +352,17 @@ def run_agentic_loop(session: ConversationSession, user_message_text: str) -> st
             final_text = assistant_message.content or ""
             break
 
-        # LLM wants to call tools — add its turn to context
+        # LLM wants to call tools — add its turn to context and dispatch
         groq_messages.append(_build_assistant_tool_call_message(assistant_message))
         _dispatch_tool_calls(assistant_message, session, groq_messages, pending_tool_calls_for_db)
 
     if final_text is None:
-        final_text = "I'm sorry, I wasn't able to process your request. Please try again."
+        final_text = (
+            "I'm sorry, I wasn't able to fully process your request. "
+            "Please try rephrasing or start a new conversation."
+        )
         logger.warning(
-            "Agentic loop exhausted %d iterations for session %s",
+            "Agentic loop exhausted all %d iterations for session=%s",
             MAX_TOOL_ITERATIONS,
             session.session_key,
         )
@@ -260,7 +385,10 @@ def run_agentic_loop(session: ConversationSession, user_message_text: str) -> st
     session.save(update_fields=["updated_at"])
 
     logger.info(
-        "Agentic loop complete for session %s (%d iterations)", session.session_key, iterations
+        "Agentic loop complete — session=%s iterations=%d response_len=%d",
+        session.session_key,
+        iterations,
+        len(final_text),
     )
 
     return final_text
