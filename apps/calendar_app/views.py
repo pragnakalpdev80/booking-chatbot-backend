@@ -103,22 +103,24 @@ class GoogleOAuth2CallbackView(APIView):
             creds = flow.credentials
         except Exception as exc:
             logger.exception("OAuth callback failed: %s", exc)
-            return ApiResponse({"error": str(exc)}, status=status.HTTP_400_BAD_REQUEST)
+            from django.http import HttpResponseRedirect
+
+            return HttpResponseRedirect(
+                "http://localhost:5173/provider/settings?error=oauth_failed"
+            )
 
         user_id = cache.get(f"oauth_user_{state}")
         if not user_id:
-            return ApiResponse(
-                {"error": "OAuth session expired or invalid. Please try connecting again."},
-                status=status.HTTP_400_BAD_REQUEST,
-            )
+            from django.http import HttpResponseRedirect
+
+            return HttpResponseRedirect("http://localhost:5173/provider/settings?error=expired")
 
         try:
             provider = User.objects.get(pk=user_id)
         except User.DoesNotExist:
-            return ApiResponse(
-                {"error": "Provider not found."},
-                status=status.HTTP_400_BAD_REQUEST,
-            )
+            from django.http import HttpResponseRedirect
+
+            return HttpResponseRedirect("http://localhost:5173/provider/settings?error=not_found")
 
         credential, created = GoogleCredential.objects.get_or_create(user=provider)
         credential.set_token(creds.to_json())
@@ -132,7 +134,12 @@ class GoogleOAuth2CallbackView(APIView):
             provider.username,
             credential.scope,
         )
-        return ApiResponse({"status": "connected", "scope": credential.scope})
+
+        from django.http import HttpResponseRedirect
+
+        return HttpResponseRedirect(
+            "http://localhost:5173/provider/settings?success=google_connected"
+        )
 
 
 # ─── Admin calendar CRUD ──────────────────────────────────────────────────────
