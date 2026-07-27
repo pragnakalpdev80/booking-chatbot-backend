@@ -47,7 +47,7 @@ class ProviderSettingsSerializer(serializers.ModelSerializer):
     is_google_connected = serializers.SerializerMethodField()
 
     def get_is_google_connected(self, obj):
-        return hasattr(obj.provider, "google_credential")
+        return hasattr(obj.user, "google_credential")
 
     class Meta:
         model = ProviderSettings
