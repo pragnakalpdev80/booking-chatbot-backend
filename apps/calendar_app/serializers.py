@@ -44,6 +44,10 @@ class AvailableSlotSerializer(serializers.Serializer):
 class ProviderSettingsSerializer(serializers.ModelSerializer):
     break_times = BreakTimeSerializer(many=True, read_only=True)
     holidays = HolidaySerializer(many=True, read_only=True)
+    is_google_connected = serializers.SerializerMethodField()
+
+    def get_is_google_connected(self, obj):
+        return hasattr(obj.provider, "google_credential")
 
     class Meta:
         model = ProviderSettings
@@ -56,8 +60,9 @@ class ProviderSettingsSerializer(serializers.ModelSerializer):
             "updated_at",
             "break_times",
             "holidays",
+            "is_google_connected",
         ]
-        read_only_fields = ["id", "updated_at", "break_times", "holidays"]
+        read_only_fields = ["id", "updated_at", "break_times", "holidays", "is_google_connected"]
 
 
 class ProviderListSerializer(serializers.ModelSerializer):
