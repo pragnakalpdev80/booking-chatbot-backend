@@ -13,10 +13,10 @@ class DashboardSelector:
         end_date_str: str | None = None,
         email_str: str | None = None,
     ):
-        """Get upcoming appointments for a provider (CONFIRMED/CANCELLED and strictly future)."""
+        """Get upcoming appointments for a provider (CONFIRMED and strictly future)."""
         qs = Booking.objects.filter(
             provider_id=provider_id,
-            status__in=[BookingStatus.CONFIRMED, BookingStatus.CANCELLED],
+            status=BookingStatus.CONFIRMED,
             start_time__gt=timezone.now(),
         ).order_by("start_time")
 
@@ -77,11 +77,14 @@ class DashboardSelector:
     def get_stats(provider_id: int):
         """Get stats for a provider."""
         today = timezone.now().date()
+        now = timezone.now()
         qs = Booking.objects.filter(provider_id=provider_id)
 
         total_appointments = qs.count()
         today_appointments = qs.filter(start_time__date=today).count()
-        upcoming_appointments = qs.filter(start_time__date__gt=today).count()
+        upcoming_appointments = qs.filter(
+            status=BookingStatus.CONFIRMED, start_time__gt=now
+        ).count()
         cancelled_appointments = qs.filter(status=BookingStatus.CANCELLED).count()
 
         return {

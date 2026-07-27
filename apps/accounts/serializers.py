@@ -63,6 +63,10 @@ class RegisterSerializer(serializers.ModelSerializer):
 
         user = User.objects.create_user(**validated_data)
 
+        # Grant staff status so the user is recognized as a provider
+        user.is_staff = True
+        user.save(update_fields=["is_staff"])
+
         # UserProfile is auto-created by signal; update extra fields if provided
         profile = user.user_profile
         profile.phone = phone

@@ -116,9 +116,42 @@ def _build_system_prompt(session: ConversationSession, ps: ProviderSettings) -> 
     else:
         lock_context = "LOCKED SLOT: None."
 
+    recent_booking_context = ""
+    if session.user_email:
+        from datetime import timedelta
+
+        from apps.calendar_app.models import Booking, BookingStatus
+
+        recent_booking = (
+            Booking.objects.filter(
+                email=session.user_email,
+                status=BookingStatus.CONFIRMED,
+                created_at__gte=now - timedelta(minutes=30),
+            )
+            .order_by("-created_at")
+            .first()
+        )
+        if recent_booking:
+            recent_booking_context = (
+                f"\nRECENTLY CONFIRMED BOOKING: A booking for "
+                f"{recent_booking.start_time.isoformat()} "
+                "was successfully confirmed and paid for just now. "
+                "If the user mentions completing their payment, "
+                "DO NOT ask them to book a slot again. Simply acknowledge "
+                "their successful booking and ask if they need anything else."
+            )
+
+    # Inject next 30 days weekday mapping to prevent hallucination
+    from datetime import timedelta
+
+    calendar_dates = [(now + timedelta(days=i)).strftime("%Y-%m-%d (%A)") for i in range(30)]
+    calendar_mapping_str = ", ".join(calendar_dates)
+
     return f"""You are a helpful scheduling assistant for {ps.provider_name}.
 
 Current date and time: {now.strftime("%A, %d %B %Y, %I:%M %p")} ({ps.timezone})
+
+Calendar for next 30 days: {calendar_mapping_str}
 
 Available booking hours (in {ps.timezone}):
 {work_schedule_str}
@@ -126,7 +159,8 @@ Available booking hours (in {ps.timezone}):
 
 Session context:
 {email_context}
-{lock_context}
+{lock_context}{recent_booking_context}
+
 
 {payment_instructions}
 

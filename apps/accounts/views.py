@@ -10,6 +10,7 @@ User auth endpoints:
 import logging
 
 from django.contrib.auth import get_user_model
+from django.utils.text import slugify
 from rest_framework import status
 from rest_framework.permissions import AllowAny, IsAuthenticated
 from rest_framework.request import Request
@@ -74,12 +75,26 @@ class ProviderListView(APIView):
 
     def get(self, request: Request) -> Response:
         providers = User.objects.filter(is_staff=True).select_related("user_profile").order_by("id")
-        data = [
-            {
-                "id": u.id,
-                "name": u.get_full_name() or u.username,
-                "specialty": getattr(getattr(u, "user_profile", None), "specialty", ""),
-            }
-            for u in providers
-        ]
+
+        # Prefetch provider settings to get slugs
+        from apps.calendar_app.models import ProviderSettings
+
+        settings_map = {
+            ps.user_id: ps for ps in ProviderSettings.objects.filter(user__in=providers)
+        }
+
+        data = []
+        for u in providers:
+            ps = settings_map.get(u.id)
+            slug = ps.slug if ps else slugify(u.username)
+
+            data.append(
+                {
+                    "id": u.id,
+                    "name": u.get_full_name() or u.username,
+                    "specialty": getattr(getattr(u, "user_profile", None), "specialty", ""),
+                    "slug": slug,
+                }
+            )
+
         return ApiResponse(data)

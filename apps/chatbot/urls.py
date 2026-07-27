@@ -3,12 +3,19 @@ from django.urls import path
 
 from .views import (
     DeleteSessionView,
+    ResolveProviderView,
     SendMessageView,
     SessionHistoryView,
     StartSessionView,
 )
 
 urlpatterns = [
+    # Resolve provider id from slug
+    path(
+        "provider/<slug:provider_slug>/",
+        ResolveProviderView.as_view(),
+        name="chat_resolve_provider",
+    ),
     # Start a new anonymous conversation session
     path("sessions/", StartSessionView.as_view(), name="chat_start_session"),
     # Send a message and receive an AI response

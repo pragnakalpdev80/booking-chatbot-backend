@@ -29,6 +29,15 @@ jobs:
         ports:
           - 6379:6379
 
+    env:
+      DB_NAME: calendar_chatbot
+      DB_USER: admin
+      DB_PASSWORD: adminpassword
+      DB_HOST: localhost
+      DB_PORT: 5432
+      REDIS_URL: redis://localhost:6379/0
+      DJANGO_SETTINGS_MODULE: config.settings.local
+
     steps:
     - uses: actions/checkout@v4
 
@@ -57,9 +66,5 @@ jobs:
         bandit -r apps/
 
     - name: Run Pytest
-      env:
-        DATABASE_URL: postgres://admin:adminpassword@localhost:5432/calendar_chatbot
-        REDIS_URL: redis://localhost:6379/0
-        DJANGO_SETTINGS_MODULE: config.settings.local
       run: |
         pytest

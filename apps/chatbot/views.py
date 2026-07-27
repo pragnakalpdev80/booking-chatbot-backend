@@ -32,6 +32,33 @@ from .serializers import (
 logger = logging.getLogger(__name__)
 
 
+class ResolveProviderView(APIView):
+    """
+    GET /api/v1/chat/provider/<slug>/
+    Returns provider id and details if found.
+    """
+
+    permission_classes = [AllowAny]
+
+    def get(self, request, provider_slug):
+        from apps.calendar_app.models import ProviderSettings
+
+        try:
+            ps = ProviderSettings.objects.select_related("user", "user__user_profile").get(
+                slug=provider_slug
+            )
+            return ApiResponse(
+                {
+                    "id": ps.user.id,
+                    "name": ps.provider_name,
+                    "slug": ps.slug,
+                    "specialty": getattr(getattr(ps.user, "user_profile", None), "specialty", ""),
+                }
+            )
+        except ProviderSettings.DoesNotExist:
+            return ApiResponse({"error": "Provider not found"}, status=status.HTTP_404_NOT_FOUND)
+
+
 class StartSessionSerializer(serializers.Serializer):
     provider_id = serializers.IntegerField()
 

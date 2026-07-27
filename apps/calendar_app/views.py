@@ -78,6 +78,10 @@ class GoogleLoginView(APIView):
         code_verifier = getattr(flow, "code_verifier", None)
         if code_verifier:
             cache.set(f"oauth_verifier_{state}", code_verifier, timeout=600)
+
+        # Cache the current provider's ID against the state parameter
+        cache.set(f"oauth_user_{state}", request.user.id, timeout=600)
+
         request.session["google_oauth_state"] = state
         return ApiResponse({"auth_url": auth_url})
 
@@ -101,23 +105,31 @@ class GoogleOAuth2CallbackView(APIView):
             logger.exception("OAuth callback failed: %s", exc)
             return ApiResponse({"error": str(exc)}, status=status.HTTP_400_BAD_REQUEST)
 
-        admin_user = User.objects.filter(is_superuser=True).first()
-        if not admin_user:
+        user_id = cache.get(f"oauth_user_{state}")
+        if not user_id:
             return ApiResponse(
-                {"error": "No superuser exists to attach the calendar to."},
+                {"error": "OAuth session expired or invalid. Please try connecting again."},
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
-        credential, created = GoogleCredential.objects.get_or_create(user=admin_user)
+        try:
+            provider = User.objects.get(pk=user_id)
+        except User.DoesNotExist:
+            return ApiResponse(
+                {"error": "Provider not found."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        credential, created = GoogleCredential.objects.get_or_create(user=provider)
         credential.set_token(creds.to_json())
         credential.scope = " ".join(creds.scopes or [])
         credential.save()
 
         action = "created" if created else "updated"
         logger.info(
-            "Google connection %s for admin %s (scope: %s)",
+            "Google connection %s for provider %s (scope: %s)",
             action,
-            admin_user.username,
+            provider.username,
             credential.scope,
         )
         return ApiResponse({"status": "connected", "scope": credential.scope})
@@ -319,7 +331,44 @@ class ProviderBreakTimesView(APIView):
 
     def put(self, request):
         ps = ProviderSettings.get_for_provider(request.user)
-        serializer = BreakTimeSerializer(data=request.data.get("breaks", []), many=True)
+        breaks_data = request.data.get("breaks", [])
+
+        # Validate for overlapping breaks on the same day
+        import datetime
+
+        try:
+            for i, brk1 in enumerate(breaks_data):
+                for j, brk2 in enumerate(breaks_data):
+                    if i >= j:
+                        continue
+                    if brk1.get("weekday") == brk2.get("weekday"):
+                        s1 = datetime.datetime.strptime(brk1.get("start"), "%H:%M").time()
+                        e1 = datetime.datetime.strptime(brk1.get("end"), "%H:%M").time()
+                        s2 = datetime.datetime.strptime(brk2.get("start"), "%H:%M").time()
+                        e2 = datetime.datetime.strptime(brk2.get("end"), "%H:%M").time()
+
+                        if s1 < e2 and s2 < e1:
+                            weekdays = [
+                                "Monday",
+                                "Tuesday",
+                                "Wednesday",
+                                "Thursday",
+                                "Friday",
+                                "Saturday",
+                                "Sunday",
+                            ]
+                            day_name = weekdays[int(brk1.get("weekday"))]
+                            return ApiResponse(
+                                {"error": f"Break times overlap on {day_name}."},
+                                status=status.HTTP_400_BAD_REQUEST,
+                            )
+        except ValueError:
+            return ApiResponse(
+                {"error": "Invalid time format. Please use HH:MM."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        serializer = BreakTimeSerializer(data=breaks_data, many=True)
         if serializer.is_valid():
             from django.db import transaction
 

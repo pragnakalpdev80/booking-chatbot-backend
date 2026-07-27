@@ -16,6 +16,7 @@ from cryptography.fernet import Fernet
 from django.conf import settings
 from django.contrib.auth.models import User
 from django.db import models
+from django.utils.text import slugify
 from google.auth.transport.requests import Request
 from google.oauth2.credentials import Credentials
 
@@ -115,6 +116,11 @@ class ProviderSettings(models.Model):
         related_name="provider_settings",
         help_text="The doctor/provider who owns these settings.",
     )
+    slug = models.SlugField(
+        max_length=100,
+        unique=True,
+        help_text="URL-safe identifier, e.g. 'drsmith'. Auto-populated from username.",
+    )
     calendar_id = models.CharField(
         max_length=255,
         default="primary",
@@ -186,6 +192,7 @@ class ProviderSettings(models.Model):
         obj, _ = cls.objects.get_or_create(
             user=user,
             defaults={
+                "slug": slugify(user.username),
                 "provider_name": f"Dr. {user.last_name or user.username}",
                 "calendar_id": "primary",
                 "day_schedules": default_schedule,
