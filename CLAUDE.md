@@ -9,7 +9,7 @@
 ## 0. Before Writing Any Code
 
 1. **Always read `context/overview.md`** to understand the system architecture, actor model, and data flow.
-2. **Always read `context/calendar_app/overview.md`** to understand existing models, views, serializers, and planned app structures.
+2. **Always read `context/<app_name>/overview.md`** to understand existing models, views, serializers, and planned app structures.
 3. If a new app is being added, check whether a stub for it already exists in `context/calendar_app/overview.md` before designing it from scratch.
 
 ---
@@ -29,7 +29,7 @@
 ### 1.3 App Structure
 - New features go into their own **dedicated Django app** (e.g., `chatbot`, `appointments`, `accounts`).
 - Never add unrelated logic to `calendar_app`. Its only job is Google Calendar integration.
-- New apps must be added to `INSTALLED_APPS` in `config/settings.py`.
+- New apps must be added to `INSTALLED_APPS` in `config/settings/base.py`.
 - New apps must have their `urls.py` included in `config/urls.py` under the `/api/` prefix.
 
 ---
