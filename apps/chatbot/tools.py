@@ -524,7 +524,8 @@ def _get_available_slots(session: ConversationSession, date: str) -> str:
     current = start_of_day
     while current + slot_delta <= end_of_day:
         slot_end = current + slot_delta
-        # Only offer slots that are in the future, free on Google Calendar, not a break, and not locked by someone else
+        # Only offer slots that are in the future, free on Google Calendar,
+        # not a break, and not locked by someone else
         is_break = False
         for b_start, b_end in break_intervals:
             if current < b_end and slot_end > b_start:

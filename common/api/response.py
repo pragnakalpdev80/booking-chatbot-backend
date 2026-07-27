@@ -16,7 +16,8 @@ class ApiResponse(Response):
     ):
         """
         Builds a consistent ApiResponse for paginated datasets.
-        The pagination metadata (count, next, previous) are included as top-level siblings to 'data'.
+        The pagination metadata (count, next, previous) are included
+        as top-level siblings to 'data'.
         """
         payload = {
             "success": status_code < 400,

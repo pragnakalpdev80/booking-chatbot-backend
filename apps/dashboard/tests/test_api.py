@@ -49,7 +49,8 @@ class TestDashboardEndpoints:
         url = reverse("dashboard_appointments")
         response = auth_client.get(url)
         assert response.status_code == status.HTTP_200_OK
-        # Future confirmed AND cancelled should be returned (Tomorrow Confirmed and Tomorrow Cancelled)
+        # Future confirmed AND cancelled should be returned
+        # (Tomorrow Confirmed and Tomorrow Cancelled)
         assert len(response.data["data"]) == 2
         emails = [item["email"] for item in response.data["data"]]
         assert "2@test.com" in emails

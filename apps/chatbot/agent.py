@@ -70,7 +70,8 @@ def _build_system_prompt(session: ConversationSession, ps: ProviderSettings) -> 
                 start_obj = datetime.strptime(start, "%H:%M")
                 end_obj = datetime.strptime(end, "%H:%M")
                 schedule_lines.append(
-                    f"  - {day_name}: {start_obj.strftime('%I:%M %p')} – {end_obj.strftime('%I:%M %p')}"
+                    f"  - {day_name}: "
+                    f"{start_obj.strftime('%I:%M %p')} – {end_obj.strftime('%I:%M %p')}"
                 )
             except ValueError:
                 schedule_lines.append(f"  - {day_name}: {start} – {end}")
@@ -328,7 +329,7 @@ def run_agentic_loop(session: ConversationSession, user_message_text: str) -> st
         )
 
         try:
-            response = client.chat.completions.create(  # type: ignore[union-attr,call-overload]
+            response = client.chat.completions.create(  # type: ignore[call-overload]
                 model=model,
                 messages=groq_messages,
                 tools=available_tools,
