@@ -168,6 +168,11 @@ CELERY_BEAT_SCHEDULE = {
         "task": "apps.calendar_app.tasks.cleanup_expired_locks",
         "schedule": crontab(minute="*/5"),
     },
+    "reconcile_bookings_with_gcal": {
+        "task": "apps.calendar_app.tasks.reconcile_bookings_with_gcal",
+        # Run every night at 00:30 UTC — after midnight so it catches same-day edits.
+        "schedule": crontab(hour=0, minute=30),
+    },
 }
 
 # ─── Logging ─────────────────────────────────────────────────────────────────

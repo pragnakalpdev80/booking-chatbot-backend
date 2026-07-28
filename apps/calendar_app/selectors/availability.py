@@ -4,6 +4,7 @@ from typing import Any
 from zoneinfo import ZoneInfo
 
 from django.contrib.auth.models import User
+from django.core.cache import cache
 from googleapiclient.errors import HttpError
 
 from apps.calendar_app.models import ProviderSettings
@@ -38,10 +39,24 @@ class AvailabilitySelector(BaseSelector):
         slot_delta = timedelta(minutes=ps.slot_duration)
         return start_of_day, end_of_day, slot_delta
 
+    # Cache TTL in seconds: 2 minutes is short enough to reflect real-world changes
+    # without hammering the Google Calendar API when many users check the same date.
+    _FREEBUSY_CACHE_TTL = 120
+
     @classmethod
     def _fetch_google_freebusy(
         cls, provider: User, ps: ProviderSettings, start_of_day: datetime, end_of_day: datetime
     ) -> list[dict[str, Any]]:
+        cache_key = f"freebusy_{provider.pk}_{ps.calendar_id}_{start_of_day.date().isoformat()}"
+        cached = cache.get(cache_key)
+        if cached is not None:
+            logger.debug(
+                "freebusy cache HIT for provider %s on %s",
+                provider.pk,
+                start_of_day.date(),
+            )
+            return cached
+
         try:
             cred = _get_admin_credential(provider)
             service = _build_service(cred)
@@ -65,7 +80,16 @@ class AvailabilitySelector(BaseSelector):
             logger.exception("freebusy failed: %s", exc)
             raise RuntimeError("Failed to fetch calendar availability.") from exc
 
-        return freebusy_result.get("calendars", {}).get(ps.calendar_id, {}).get("busy", [])
+        busy_intervals = (
+            freebusy_result.get("calendars", {}).get(ps.calendar_id, {}).get("busy", [])
+        )
+        cache.set(cache_key, busy_intervals, timeout=cls._FREEBUSY_CACHE_TTL)
+        logger.debug(
+            "freebusy cache SET for provider %s on %s",
+            provider.pk,
+            start_of_day.date(),
+        )
+        return busy_intervals
 
     @classmethod
     def _get_break_intervals(
