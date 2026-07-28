@@ -34,7 +34,7 @@ def finalize_booking_task(self, payment_order_pk: int) -> None:
         service = get_gcal_service(booking.provider)
     except GoogleCredential.DoesNotExist:
         logger.error(
-            "finalize_booking_task failed: GoogleCredential missing for provider %s (order %d)",
+            "finalize_booking_task failed: Google account connection missing for provider %s (order %d)",
             booking.provider,
             payment_order_pk,
         )
