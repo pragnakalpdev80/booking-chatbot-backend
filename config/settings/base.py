@@ -173,6 +173,8 @@ CELERY_BEAT_SCHEDULE = {
 # ─── Logging ─────────────────────────────────────────────────────────────────
 LOGS_DIR = BASE_DIR / "logs"
 
+ROTATING_FILE_HANDLER_CLASS = "logging.handlers.RotatingFileHandler"
+
 LOGGING = {
     "version": 1,
     "disable_existing_loggers": False,
@@ -193,14 +195,14 @@ LOGGING = {
             "formatter": "verbose",
         },
         "file_general": {
-            "class": "logging.handlers.RotatingFileHandler",
+            "class": ROTATING_FILE_HANDLER_CLASS,
             "filename": LOGS_DIR / "general.log",
             "maxBytes": 10 * 1024 * 1024,  # 10 MB
             "backupCount": 5,
             "formatter": "verbose",
         },
         "file_error": {
-            "class": "logging.handlers.RotatingFileHandler",
+            "class": ROTATING_FILE_HANDLER_CLASS,
             "filename": LOGS_DIR / "error.log",
             "maxBytes": 10 * 1024 * 1024,  # 10 MB
             "backupCount": 10,
@@ -208,7 +210,7 @@ LOGGING = {
             "formatter": "verbose",
         },
         "file_celery": {
-            "class": "logging.handlers.RotatingFileHandler",
+            "class": ROTATING_FILE_HANDLER_CLASS,
             "filename": LOGS_DIR / "celery.log",
             "maxBytes": 10 * 1024 * 1024,  # 10 MB
             "backupCount": 5,

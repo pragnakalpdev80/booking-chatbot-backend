@@ -53,22 +53,25 @@ class TestPaymentOrderService:
 
     def test_create_no_active_slot_lock(self, session):
         start_time = now() + timedelta(days=1)
+        service = PaymentOrderService()
         with pytest.raises(ApplicationError) as excinfo:
-            PaymentOrderService().create(session, start_time, "Checkup")
+            service.create(session, start_time, "Checkup")
         assert excinfo.value.status_code == 400
 
     def test_create_expired_slot_lock(self, session, slot_lock):
         slot_lock.expires_at = now() - timedelta(minutes=1)
         slot_lock.save()
+        service = PaymentOrderService()
         with pytest.raises(ApplicationError) as excinfo:
-            PaymentOrderService().create(session, slot_lock.slot_start, "Checkup")
+            service.create(session, slot_lock.slot_start, "Checkup")
         assert excinfo.value.status_code == 400
 
     def test_create_empty_email(self, session, slot_lock):
         session.user_email = ""
         session.save()
+        service = PaymentOrderService()
         with pytest.raises(ApplicationError) as excinfo:
-            PaymentOrderService().create(session, slot_lock.slot_start, "Checkup")
+            service.create(session, slot_lock.slot_start, "Checkup")
         assert excinfo.value.status_code == 400
 
     def test_create_idempotency(self, session, slot_lock):

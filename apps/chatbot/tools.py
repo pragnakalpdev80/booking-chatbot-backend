@@ -38,7 +38,7 @@ SLOT_DURATION_MINUTES = 30
 
 # Constant for error message used across multiple tools
 _EMAIL_NOT_COLLECTED_MSG = "Email not collected yet. Please ask the user for their email first."
-
+ISO8601_TZ_DESC = "ISO 8601 datetime string with timezone offset "
 
 # ─── Tool schemas ─────────────────────────────────────────────────────────────
 
@@ -101,10 +101,7 @@ TOOL_SCHEMAS: list[dict[str, Any]] = [
                 "properties": {
                     "start_time": {
                         "type": "string",
-                        "description": (
-                            "ISO 8601 datetime string with timezone offset "
-                            "(e.g. '2026-07-25T10:00:00+05:30')."
-                        ),
+                        "description": (ISO8601_TZ_DESC + "(e.g. '2026-07-25T10:00:00+05:30')."),
                     },
                     "reason": {
                         "type": "string",
@@ -129,10 +126,7 @@ TOOL_SCHEMAS: list[dict[str, Any]] = [
                 "properties": {
                     "start_time": {
                         "type": "string",
-                        "description": (
-                            "ISO 8601 datetime string with timezone offset "
-                            "(e.g. '2026-07-25T10:00:00+05:30')."
-                        ),
+                        "description": (ISO8601_TZ_DESC + "(e.g. '2026-07-25T10:00:00+05:30')."),
                     },
                 },
                 "required": ["start_time"],
@@ -152,10 +146,7 @@ TOOL_SCHEMAS: list[dict[str, Any]] = [
                 "properties": {
                     "start_time": {
                         "type": "string",
-                        "description": (
-                            "ISO 8601 datetime string with timezone offset "
-                            "(e.g. '2026-07-25T10:00:00+05:30')."
-                        ),
+                        "description": (ISO8601_TZ_DESC + "(e.g. '2026-07-25T10:00:00+05:30')."),
                     },
                 },
                 "required": ["start_time"],
@@ -441,6 +432,36 @@ def _release_slot(session: ConversationSession, start_time: str) -> str:
         return json.dumps({"status": "ignored", "message": "No active lock found for this slot."})
 
 
+def _build_free_slot_list(
+    start_of_day: datetime,
+    end_of_day: datetime,
+    slot_delta: timedelta,
+    break_intervals: list[tuple[datetime, datetime]],
+    busy_intervals: list[dict],
+    active_locked_starts: set[datetime],
+    now_tz: datetime,
+) -> list[dict[str, str]]:
+    slots = []
+    current = start_of_day
+    while current + slot_delta <= end_of_day:
+        slot_end = current + slot_delta
+        is_break = False
+        for b_start, b_end in break_intervals:
+            if current < b_end and slot_end > b_start:
+                is_break = True
+                break
+
+        if (
+            current >= now_tz
+            and not is_break
+            and _is_slot_free(busy_intervals, current, slot_end)
+            and current not in active_locked_starts
+        ):
+            slots.append({"start": current.isoformat(), "end": slot_end.isoformat()})
+        current = slot_end
+    return slots
+
+
 def _get_available_slots(session: ConversationSession, date: str) -> str:
     logger.debug("Tool: get_available_slots — session %s, date %s", session.session_key, date)
     assert session.provider is not None
@@ -453,16 +474,11 @@ def _get_available_slots(session: ConversationSession, date: str) -> str:
 
     tz = ZoneInfo(ps.timezone)
 
-    # 1. Holiday Check
     if ps.holidays.filter(date=query_date).exists():
         return json.dumps(
-            {
-                "available_slots": [],
-                "message": "The clinic is closed on this date (Holiday).",
-            }
+            {"available_slots": [], "message": "The clinic is closed on this date (Holiday)."}
         )
 
-    # 2. Day Schedule Check
     weekday_str = str(query_date.weekday())
     day_schedule = ps.day_schedules.get(weekday_str)
     if not day_schedule or not day_schedule.get("is_active"):
@@ -483,7 +499,6 @@ def _get_available_slots(session: ConversationSession, date: str) -> str:
     end_of_day = datetime.combine(query_date, work_end, tzinfo=tz)
     slot_delta = timedelta(minutes=ps.slot_duration)
 
-    assert session.provider is not None
     service = get_gcal_service(session.provider)
     freebusy_result = (
         service.freebusy()
@@ -496,50 +511,36 @@ def _get_available_slots(session: ConversationSession, date: str) -> str:
         )
         .execute()
     )
-    logger.debug("Google API freebusy result: %s", json.dumps(freebusy_result))
 
     busy_intervals = freebusy_result.get("calendars", {}).get(ps.calendar_id, {}).get("busy", [])
 
-    # Fetch custom breaks
     breaks = ps.break_times.filter(weekday=query_date.weekday())
-    break_intervals = []
-    for b in breaks:
-        b_start = datetime.combine(query_date, b.start, tzinfo=tz)
-        b_end = datetime.combine(query_date, b.end, tzinfo=tz)
-        break_intervals.append((b_start, b_end))
+    break_intervals = [
+        (
+            datetime.combine(query_date, b.start, tzinfo=tz),
+            datetime.combine(query_date, b.end, tzinfo=tz),
+        )
+        for b in breaks
+    ]
 
-    # Get active locks held by OTHER sessions
     active_locked_starts = set(
         SlotLock.objects.filter(
-            slot_start__date=query_date,
-            expires_at__gt=now(),
-            is_confirmed=False,
+            slot_start__date=query_date, expires_at__gt=now(), is_confirmed=False
         )
         .exclude(session_key=session.session_key)
         .values_list("slot_start", flat=True)
     )
 
     now_tz = datetime.now(tz=tz)
-    slots = []
-    current = start_of_day
-    while current + slot_delta <= end_of_day:
-        slot_end = current + slot_delta
-        # Only offer slots that are in the future, free on Google Calendar,
-        # not a break, and not locked by someone else
-        is_break = False
-        for b_start, b_end in break_intervals:
-            if current < b_end and slot_end > b_start:
-                is_break = True
-                break
-
-        if (
-            current >= now_tz
-            and not is_break
-            and _is_slot_free(busy_intervals, current, slot_end)
-            and current not in active_locked_starts
-        ):
-            slots.append({"start": current.isoformat(), "end": slot_end.isoformat()})
-        current = slot_end
+    slots = _build_free_slot_list(
+        start_of_day,
+        end_of_day,
+        slot_delta,
+        break_intervals,
+        busy_intervals,
+        active_locked_starts,
+        now_tz,
+    )
 
     message = _build_no_slots_message(end_of_day, now_tz) if not slots else ""
 

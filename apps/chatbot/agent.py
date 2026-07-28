@@ -260,12 +260,11 @@ def _dispatch_tool_calls(
         try:
             tool_result = execute_tool(tool_name, tool_args, session)
         except Exception as exc:  # noqa: BLE001
-            logger.error(
+            logger.exception(
                 "Tool '%s' raised unhandled exception for session=%s: %s",
                 tool_name,
                 session.session_key,
                 exc,
-                exc_info=True,
             )
             tool_result = json.dumps(
                 {
@@ -287,18 +286,39 @@ def _dispatch_tool_calls(
         pending_tool_calls_for_db.append({"tool_call_id": tc.id, "result": tool_result})
 
 
+def _prepare_groq_messages(
+    session: ConversationSession, ps: ProviderSettings
+) -> list[dict[str, Any]]:
+    system_prompt = _build_system_prompt(session, ps)
+    recent_messages = list(session.messages.order_by("-timestamp")[:ROLLING_CONTEXT_LIMIT])
+    recent_messages.reverse()
+
+    groq_messages: list[dict[str, Any]] = [{"role": "system", "content": system_prompt}]
+    for msg in recent_messages:
+        if msg.role == MessageRole.TOOL:
+            continue
+        groq_messages.append({"role": msg.role, "content": msg.content})
+    return groq_messages
+
+
+def _get_available_tools(ps: ProviderSettings) -> list[dict[str, Any]]:
+    PAYMENT_TOOLS = {"initiate_payment"}
+    NON_PAYMENT_TOOLS = {"book_appointment"}
+    available_tools = []
+    for schema in TOOL_SCHEMAS:
+        name = str(schema["function"]["name"])
+        if ps.payment_required and name in NON_PAYMENT_TOOLS:
+            continue
+        if not ps.payment_required and name in PAYMENT_TOOLS:
+            continue
+        available_tools.append(schema)
+    return available_tools
+
+
 def run_agentic_loop(session: ConversationSession, user_message_text: str) -> str:
     """
     Process a single anonymous user message through the full Groq agentic loop.
-
-    1. Persist the user's message.
-    2. Load rolling context from DB.
-    3. Call Groq with tools; iterate on tool calls until a text response is produced.
-    4. Persist assistant response and tool results.
-    5. Return the final text response.
     """
-    # Guard: provider must be set on the session. Do NOT use `assert` — it is silently
-    # bypassed under `python -O` and produces an unhelpful AssertionError otherwise.
     if session.provider is None:
         logger.error(
             "run_agentic_loop called for session %s with no provider attached.",
@@ -317,36 +337,13 @@ def run_agentic_loop(session: ConversationSession, user_message_text: str) -> st
         content=user_message_text,
     )
 
-    # 2. Build message history for Groq (rolling context)
+    # 2. Build message history and filter tools
     ps = ProviderSettings.get_for_provider(session.provider)
-    system_prompt = _build_system_prompt(session, ps)
-
-    recent_messages = list(session.messages.order_by("-timestamp")[:ROLLING_CONTEXT_LIMIT])
-    recent_messages.reverse()
-
-    groq_messages: list[dict[str, Any]] = [{"role": "system", "content": system_prompt}]
-    for msg in recent_messages:
-        if msg.role == MessageRole.TOOL:
-            # Skip historical tool results — Groq requires the matching assistant tool_calls
-            # block to precede them, which we do not re-persist.
-            continue
-        groq_messages.append({"role": msg.role, "content": msg.content})
+    groq_messages = _prepare_groq_messages(session, ps)
+    available_tools = _get_available_tools(ps)
 
     client = Groq(api_key=getattr(settings, "GROQ_API_KEY", ""))
     model = getattr(settings, "GROQ_MODEL", "moonshotai/kimi-k2")
-
-    # Filter tools based on payment requirement (mutually exclusive)
-    PAYMENT_TOOLS = {"initiate_payment"}
-    NON_PAYMENT_TOOLS = {"book_appointment"}
-
-    available_tools: list[dict[str, Any]] = []
-    for schema in TOOL_SCHEMAS:
-        name = str(schema["function"]["name"])
-        if ps.payment_required and name in NON_PAYMENT_TOOLS:
-            continue
-        if not ps.payment_required and name in PAYMENT_TOOLS:
-            continue
-        available_tools.append(schema)
 
     # 3. Agentic loop
     iterations = 0
@@ -370,12 +367,11 @@ def run_agentic_loop(session: ConversationSession, user_message_text: str) -> st
                 tool_choice="auto",
             )
         except Exception as groq_exc:  # noqa: BLE001
-            logger.error(
+            logger.exception(
                 "Groq API error on iteration %d for session=%s: %s",
                 iterations,
                 session.session_key,
                 groq_exc,
-                exc_info=True,
             )
             final_text = "I'm having trouble connecting right now. Please try again in a moment."
             break

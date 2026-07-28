@@ -6,6 +6,7 @@ All Google API calls are mocked.
 
 import datetime
 import json
+import uuid
 from datetime import timedelta
 from unittest.mock import MagicMock, patch
 
@@ -340,3 +341,122 @@ class TestListMyAppointmentsTool:
     def test_unknown_tool_returns_error(self, session):
         result = json.loads(execute_tool("nonexistent_tool", {}, session))
         assert "error" in result
+
+
+@pytest.mark.django_db
+class TestLockAndReleaseSlotTools:
+    def test_lock_slot_success(self, session, mock_service):
+        result = json.loads(
+            execute_tool("lock_slot", {"start_time": "2026-08-04T10:00:00+05:30"}, session)
+        )
+        assert result["status"] == "locked"
+        assert SlotLock.objects.filter(session_key=session.session_key).exists()
+
+    def test_lock_slot_invalid_date(self, session):
+        result = json.loads(execute_tool("lock_slot", {"start_time": "invalid"}, session))
+        assert "error" in result
+
+    def test_lock_slot_conflict(self, session, mock_service):
+        SlotLock.objects.create(
+            session_key=str(uuid.uuid4()),
+            slot_start="2026-08-04T10:00:00+05:30",
+            slot_end="2026-08-04T10:30:00+05:30",
+            expires_at=now() + timedelta(minutes=15),
+        )
+        result = json.loads(
+            execute_tool("lock_slot", {"start_time": "2026-08-04T10:00:00+05:30"}, session)
+        )
+        assert "error" in result
+
+    def test_release_slot_success(self, session):
+        SlotLock.objects.create(
+            session_key=session.session_key,
+            slot_start="2026-08-04T10:00:00+05:30",
+            slot_end="2026-08-04T10:30:00+05:30",
+            expires_at=now() + timedelta(minutes=15),
+        )
+        result = json.loads(
+            execute_tool("release_slot", {"start_time": "2026-08-04T10:00:00+05:30"}, session)
+        )
+        assert result["status"] == "released"
+        assert not SlotLock.objects.filter(session_key=session.session_key).exists()
+
+    def test_release_slot_not_found(self, session):
+        result = json.loads(
+            execute_tool("release_slot", {"start_time": "2026-08-04T10:00:00+05:30"}, session)
+        )
+        assert result["status"] == "ignored"
+
+    def test_release_slot_invalid_date(self, session):
+        result = json.loads(execute_tool("release_slot", {"start_time": "invalid"}, session))
+        assert "error" in result
+
+
+@pytest.mark.django_db
+class TestInitiatePaymentTool:
+    def test_initiate_payment_success(self, session_with_email):
+        start_time = now() + timedelta(days=1)
+
+        with patch(
+            "apps.payments.services.order_service.PaymentOrderService"
+        ) as mock_service_class:
+            mock_instance = mock_service_class.return_value
+            mock_order = type(
+                "obj",
+                (object,),
+                {"mock_order_id": "mock-id-123", "payment_url": "http://example.com/pay"},
+            )
+            mock_instance.create.return_value = mock_order
+
+            result = json.loads(
+                execute_tool(
+                    "initiate_payment",
+                    {"start_time": start_time.isoformat(), "reason": "Test"},
+                    session_with_email,
+                )
+            )
+
+            assert result["status"] == "success"
+            assert "[PAY:mock-id-123|http://example.com/pay]" in result["message"]
+
+    def test_initiate_payment_application_error(self, session_with_email):
+        from common.api.exceptions import ApplicationError
+
+        start_time = now() + timedelta(days=1)
+
+        with patch(
+            "apps.payments.services.order_service.PaymentOrderService"
+        ) as mock_service_class:
+            mock_instance = mock_service_class.return_value
+            mock_instance.create.side_effect = ApplicationError("Slot is no longer available.")
+
+            result = json.loads(
+                execute_tool(
+                    "initiate_payment",
+                    {"start_time": start_time.isoformat(), "reason": "Test"},
+                    session_with_email,
+                )
+            )
+
+            assert "error" in result
+            assert result["error"] == "Slot is no longer available."
+
+    def test_initiate_payment_exception(self, session_with_email):
+        start_time = now() + timedelta(days=1)
+
+        with patch(
+            "apps.payments.services.order_service.PaymentOrderService"
+        ) as mock_service_class:
+            mock_instance = mock_service_class.return_value
+            mock_instance.create.side_effect = ValueError("Unexpected error")
+
+            result = json.loads(
+                execute_tool(
+                    "initiate_payment",
+                    {"start_time": start_time.isoformat(), "reason": "Test"},
+                    session_with_email,
+                )
+            )
+
+            assert "error" in result
+            assert result["error"] == "Failed to initiate payment."

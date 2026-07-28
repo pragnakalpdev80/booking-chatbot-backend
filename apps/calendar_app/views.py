@@ -336,44 +336,43 @@ class ProviderBreakTimesView(APIView):
 
     permission_classes = [IsAdminUser]
 
-    def put(self, request):
-        ps = ProviderSettings.get_for_provider(request.user)
-        breaks_data = request.data.get("breaks", [])
-
-        # Validate for overlapping breaks on the same day
+    def _validate_break_overlaps(self, breaks_data: list[dict]) -> str | None:
         import datetime
 
         try:
             for i, brk1 in enumerate(breaks_data):
                 for j, brk2 in enumerate(breaks_data):
-                    if i >= j:
+                    if i >= j or brk1.get("weekday") != brk2.get("weekday"):
                         continue
-                    if brk1.get("weekday") == brk2.get("weekday"):
-                        s1 = datetime.datetime.strptime(brk1.get("start"), "%H:%M").time()
-                        e1 = datetime.datetime.strptime(brk1.get("end"), "%H:%M").time()
-                        s2 = datetime.datetime.strptime(brk2.get("start"), "%H:%M").time()
-                        e2 = datetime.datetime.strptime(brk2.get("end"), "%H:%M").time()
+                    s1 = datetime.datetime.strptime(brk1.get("start", ""), "%H:%M").time()
+                    e1 = datetime.datetime.strptime(brk1.get("end", ""), "%H:%M").time()
+                    s2 = datetime.datetime.strptime(brk2.get("start", ""), "%H:%M").time()
+                    e2 = datetime.datetime.strptime(brk2.get("end", ""), "%H:%M").time()
 
-                        if s1 < e2 and s2 < e1:
-                            weekdays = [
-                                "Monday",
-                                "Tuesday",
-                                "Wednesday",
-                                "Thursday",
-                                "Friday",
-                                "Saturday",
-                                "Sunday",
-                            ]
-                            day_name = weekdays[int(brk1.get("weekday"))]
-                            return ApiResponse(
-                                {"error": f"Break times overlap on {day_name}."},
-                                status=status.HTTP_400_BAD_REQUEST,
-                            )
-        except ValueError:
-            return ApiResponse(
-                {"error": "Invalid time format. Please use HH:MM."},
-                status=status.HTTP_400_BAD_REQUEST,
-            )
+                    if s1 < e2 and s2 < e1:
+                        weekdays = [
+                            "Monday",
+                            "Tuesday",
+                            "Wednesday",
+                            "Thursday",
+                            "Friday",
+                            "Saturday",
+                            "Sunday",
+                        ]
+                        day_name = weekdays[int(brk1.get("weekday", 0))]
+                        return f"Break times overlap on {day_name}."
+        except (ValueError, TypeError):
+            return "Invalid time format. Please use HH:MM."
+        return None
+
+    def put(self, request):
+        ps = ProviderSettings.get_for_provider(request.user)
+        breaks_data = request.data.get("breaks", [])
+
+        # Validate for overlapping breaks on the same day
+        error_msg = self._validate_break_overlaps(breaks_data)
+        if error_msg:
+            return ApiResponse({"error": error_msg}, status=status.HTTP_400_BAD_REQUEST)
 
         serializer = BreakTimeSerializer(data=breaks_data, many=True)
         if serializer.is_valid():

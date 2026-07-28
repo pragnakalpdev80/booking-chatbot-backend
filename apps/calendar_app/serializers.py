@@ -49,6 +49,15 @@ class ProviderSettingsSerializer(serializers.ModelSerializer):
     def get_is_google_connected(self, obj):
         return hasattr(obj.user, "google_credential")
 
+    def validate_timezone(self, value):
+        import zoneinfo
+
+        try:
+            zoneinfo.ZoneInfo(value)
+        except zoneinfo.ZoneInfoNotFoundError as err:
+            raise serializers.ValidationError("Invalid timezone.") from err
+        return value
+
     class Meta:
         model = ProviderSettings
         fields = [

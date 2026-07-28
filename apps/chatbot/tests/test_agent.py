@@ -224,3 +224,77 @@ class TestAgenticLoop:
 
         assert "book_appointment" in tool_names
         assert "initiate_payment" not in tool_names
+
+    @patch("apps.chatbot.agent.Groq")
+    def test_run_agentic_loop_json_decode_error(self, MockGroq, session):
+        mock_client = MagicMock()
+        MockGroq.return_value = mock_client
+
+        mock_tool_call = MagicMock()
+        mock_tool_call.id = "call_invalid"
+        mock_tool_call.function.name = "get_available_slots"
+        mock_tool_call.function.arguments = "invalid_json"
+
+        mock_choice_1 = MagicMock()
+        mock_choice_1.finish_reason = "tool_calls"
+        mock_choice_1.message.tool_calls = [mock_tool_call]
+        mock_choice_1.message.content = None
+
+        mock_response_1 = MagicMock()
+        mock_response_1.choices = [mock_choice_1]
+
+        mock_choice_2 = MagicMock()
+        mock_choice_2.finish_reason = "stop"
+        mock_choice_2.message.tool_calls = None
+        mock_choice_2.message.content = "I fixed it."
+
+        mock_response_2 = MagicMock()
+        mock_response_2.choices = [mock_choice_2]
+
+        mock_client.chat.completions.create.side_effect = [mock_response_1, mock_response_2]
+
+        response_text = run_agentic_loop(session, "Hi")
+
+        assert response_text == "I fixed it."
+        messages = list(session.messages.order_by("timestamp"))
+        assert len(messages) == 3
+        assert messages[1].role == MessageRole.TOOL
+        assert "invalid_arguments" in messages[1].content
+
+    @patch("apps.chatbot.agent.execute_tool")
+    @patch("apps.chatbot.agent.Groq")
+    def test_run_agentic_loop_exception(self, MockGroq, mock_execute_tool, session):
+        mock_client = MagicMock()
+        MockGroq.return_value = mock_client
+
+        mock_tool_call = MagicMock()
+        mock_tool_call.id = "call_error"
+        mock_tool_call.function.name = "get_available_slots"
+        mock_tool_call.function.arguments = '{"date": "2026-08-01"}'
+
+        mock_choice_1 = MagicMock()
+        mock_choice_1.finish_reason = "tool_calls"
+        mock_choice_1.message.tool_calls = [mock_tool_call]
+        mock_choice_1.message.content = None
+
+        mock_response_1 = MagicMock()
+        mock_response_1.choices = [mock_choice_1]
+
+        mock_choice_2 = MagicMock()
+        mock_choice_2.finish_reason = "stop"
+        mock_choice_2.message.tool_calls = None
+        mock_choice_2.message.content = "I handled the error."
+
+        mock_response_2 = MagicMock()
+        mock_response_2.choices = [mock_choice_2]
+
+        mock_client.chat.completions.create.side_effect = [mock_response_1, mock_response_2]
+        mock_execute_tool.side_effect = Exception("Tool failed")
+
+        response_text = run_agentic_loop(session, "Hi")
+
+        assert response_text == "I handled the error."
+        messages = list(session.messages.order_by("timestamp"))
+        assert len(messages) == 3
+        assert messages[1].role == MessageRole.TOOL
+        assert "database_error_occurred" in messages[1].content
