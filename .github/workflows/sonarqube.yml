@@ -9,7 +9,36 @@ on:
 jobs:
   sonarcloud:
     name: SonarCloud
-    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:15
+        env:
+          POSTGRES_DB: calendar_chatbot
+          POSTGRES_USER: admin
+          POSTGRES_PASSWORD: adminpassword
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+      redis:
+        image: redis:7
+        ports:
+          - 6379:6379
+
+    env:
+      DB_NAME: calendar_chatbot
+      DB_USER: admin
+      DB_PASSWORD: adminpassword
+      DB_HOST: 127.0.0.1
+      DB_PORT: 5432
+      REDIS_URL: redis://127.0.0.1:6379/0
+      DJANGO_SETTINGS_MODULE: config.settings.local
+      SECRET_KEY: dummy-secret-key-for-ci-tests-only
+      FERNET_KEY: XxXxXxXxXxXxXxXxXxXxXxXxXxXxXxXxXxXxXxXxXxX=
+
     steps:
       - uses: actions/checkout@v4
         with:
@@ -27,11 +56,6 @@ jobs:
           pip install pytest pytest-django pytest-cov
 
       - name: Run tests with coverage
-        env:
-          SECRET_KEY: "dummy-secret-for-tests"
-          DB_NAME: "postgres"
-          DB_USER: "postgres"
-          DB_PASSWORD: "postgres"
         run: pytest --cov=apps --cov-report=xml
 
       - name: SonarCloud Scan
