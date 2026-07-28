@@ -7,9 +7,12 @@ Returns structured JSON errors: {"error": "...", "code": "...", "details": {...}
 import logging
 from typing import Any
 
+from googleapiclient.errors import HttpError
 from rest_framework import status
 from rest_framework.response import Response
 from rest_framework.views import exception_handler
+
+from apps.calendar_app.models import GoogleCredential
 
 logger = logging.getLogger(__name__)
 
@@ -17,7 +20,30 @@ logger = logging.getLogger(__name__)
 def custom_exception_handler(exc: Exception, context: dict) -> Response | None:
     """
     Wrap DRF's default exception handler to return a consistent error shape.
+    Conforms to CLAUDE.md §4.5 rules for GoogleCredential and HttpError exceptions.
     """
+    if isinstance(exc, GoogleCredential.DoesNotExist):
+        logger.warning("GoogleCredential.DoesNotExist caught: Google account not connected")
+        return Response(
+            {
+                "error": "Google account not connected",
+                "code": "google_not_connected",
+                "status_code": 400,
+            },
+            status=status.HTTP_400_BAD_REQUEST,
+        )
+
+    if isinstance(exc, HttpError):
+        logger.error("Google HttpError caught in exception handler: %s", exc)
+        return Response(
+            {
+                "error": "Google Calendar service error.",
+                "code": "bad_gateway",
+                "status_code": 502,
+            },
+            status=status.HTTP_502_BAD_GATEWAY,
+        )
+
     response = exception_handler(exc, context)
 
     if response is not None:
@@ -30,6 +56,15 @@ def custom_exception_handler(exc: Exception, context: dict) -> Response | None:
         if isinstance(response.data, dict) and len(response.data) > 1:
             error_data["details"] = response.data
         response.data = error_data
+
+        view_name = context.get("view").__class__.__name__ if context.get("view") else "UnknownView"
+        logger.warning(
+            "DRF Exception handled in %s [%s %s]: %s",
+            view_name,
+            response.status_code,
+            error_data["code"],
+            error_data["error"],
+        )
     else:
         # Unhandled exception — return 500
         logger.exception("Unhandled exception in view: %s", exc)

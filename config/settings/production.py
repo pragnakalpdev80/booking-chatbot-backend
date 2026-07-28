@@ -5,6 +5,8 @@ Set DJANGO_SETTINGS_MODULE=config.settings.production
 All secrets must come from environment variables — never from a .env file.
 """
 
+from typing import Any, cast
+
 from .base import *  # noqa: F401, F403  # NOSONAR
 
 DEBUG = False
@@ -26,3 +28,9 @@ SECURE_REFERRER_POLICY = "strict-origin-when-cross-origin"
 
 # ─── Static files (production) ────────────────────────────────────────────────
 STATICFILES_STORAGE = "django.contrib.staticfiles.storage.ManifestStaticFilesStorage"
+
+# ─── Production Logging Overrides ─────────────────────────────────────────────
+# In production, output JSON formatted logs to console for log aggregation
+logging_dict = cast(dict[str, Any], LOGGING)  # noqa: F405
+logging_dict["handlers"]["console"]["formatter"] = "json"
+logging_dict["loggers"]["apps.chatbot"]["level"] = "INFO"  # refrain from DEBUG payload logs in prod

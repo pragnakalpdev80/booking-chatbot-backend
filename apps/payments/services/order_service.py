@@ -1,3 +1,4 @@
+import logging
 import uuid
 from datetime import datetime, timedelta
 
@@ -12,6 +13,8 @@ from apps.payments.models import PaymentOrder
 from common.api.exceptions import ApplicationError
 from common.services.base import BaseService
 
+logger = logging.getLogger(__name__)
+
 
 class PaymentOrderService(BaseService):
     def create(
@@ -22,6 +25,10 @@ class PaymentOrderService(BaseService):
     ) -> PaymentOrder:
         # 1. Guard: email must be set on session
         if not session.user_email:
+            logger.warning(
+                "Failed to create PaymentOrder: email not collected for session %s",
+                session.session_key,
+            )
             raise ApplicationError(messages.EMAIL_NOT_COLLECTED, status_code=400)
 
         # 2. Guard: active SlotLock must exist for this session + slot
@@ -32,6 +39,11 @@ class PaymentOrderService(BaseService):
             is_confirmed=False,
         ).first()
         if not lock:
+            logger.warning(
+                "Failed to create PaymentOrder: no active lock found for session %s slot %s",
+                session.session_key,
+                start_time,
+            )
             raise ApplicationError(messages.SLOT_LOCK_NOT_FOUND, status_code=400)
 
         # Check for idempotency: if an order already exists for this lock, return it
@@ -42,6 +54,11 @@ class PaymentOrderService(BaseService):
             expires_at__gt=now(),
         ).first()
         if existing_order:
+            logger.info(
+                "Returning existing active PaymentOrder %s for session %s",
+                existing_order.mock_order_id,
+                session.session_key,
+            )
             return existing_order
 
         assert session.provider is not None
@@ -71,7 +88,7 @@ class PaymentOrderService(BaseService):
         lock.save(update_fields=["expires_at"])
 
         # 6. Create PaymentOrder
-        return PaymentOrder.objects.create(
+        order = PaymentOrder.objects.create(
             mock_order_id=mock_order_id,
             booking=booking,
             session_key=session.session_key,
@@ -79,3 +96,11 @@ class PaymentOrderService(BaseService):
             payment_url=payment_url,
             expires_at=expires_at,
         )
+        logger.info(
+            "Created PaymentOrder %s for session %s (amount: %d paise, expires: %s)",
+            mock_order_id,
+            session.session_key,
+            order.amount_paise,
+            expires_at.isoformat(),
+        )
+        return order

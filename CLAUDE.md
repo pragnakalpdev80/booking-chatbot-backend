@@ -10,7 +10,7 @@
 
 1. **Always read `context/overview.md`** to understand the system architecture, actor model, and data flow.
 2. **Always read `context/<app_name>/overview.md`** to understand existing models, views, serializers, and planned app structures.
-3. If a new app is being added, check whether a stub for it already exists in `context/calendar_app/overview.md` before designing it from scratch.
+3. If a new app is being added, check whether a stub for it already exists in `context/<app_name>/overview.md` before designing it from scratch.
 
 ---
 

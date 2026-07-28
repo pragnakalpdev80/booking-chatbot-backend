@@ -51,6 +51,7 @@ MIDDLEWARE = [
     "django.contrib.auth.middleware.AuthenticationMiddleware",
     "django.contrib.messages.middleware.MessageMiddleware",
     "django.middleware.clickjacking.XFrameOptionsMiddleware",
+    "config.middleware.RequestLoggingMiddleware",
 ]
 
 ROOT_URLCONF = "config.urls"
@@ -170,19 +171,20 @@ CELERY_BEAT_SCHEDULE = {
 }
 
 # ─── Logging ─────────────────────────────────────────────────────────────────
+LOGS_DIR = BASE_DIR / "logs"
+
 LOGGING = {
     "version": 1,
     "disable_existing_loggers": False,
     "formatters": {
         "json": {
-            "()": "django.utils.log.ServerFormatter",
+            "()": "pythonjsonlogger.json.JsonFormatter",
             "format": (
-                '{"time": "%(asctime)s", "level": "%(levelname)s", '
-                '"logger": "%(name)s", "message": "%(message)s"}'
+                "%(asctime)s %(levelname)s %(name)s %(module)s %(funcName)s %(lineno)d %(message)s"
             ),
         },
         "verbose": {
-            "format": "[%(asctime)s] %(levelname)s %(name)s: %(message)s",
+            "format": "[%(asctime)s] %(levelname)s %(name)s (%(filename)s:%(lineno)d): %(message)s",
         },
     },
     "handlers": {
@@ -190,16 +192,84 @@ LOGGING = {
             "class": "logging.StreamHandler",
             "formatter": "verbose",
         },
+        "file_general": {
+            "class": "logging.handlers.RotatingFileHandler",
+            "filename": LOGS_DIR / "general.log",
+            "maxBytes": 10 * 1024 * 1024,  # 10 MB
+            "backupCount": 5,
+            "formatter": "verbose",
+        },
+        "file_error": {
+            "class": "logging.handlers.RotatingFileHandler",
+            "filename": LOGS_DIR / "error.log",
+            "maxBytes": 10 * 1024 * 1024,  # 10 MB
+            "backupCount": 10,
+            "level": "ERROR",
+            "formatter": "verbose",
+        },
+        "file_celery": {
+            "class": "logging.handlers.RotatingFileHandler",
+            "filename": LOGS_DIR / "celery.log",
+            "maxBytes": 10 * 1024 * 1024,  # 10 MB
+            "backupCount": 5,
+            "formatter": "verbose",
+        },
     },
     "root": {
-        "handlers": ["console"],
+        "handlers": ["console", "file_general", "file_error"],
         "level": os.getenv("LOG_LEVEL", "INFO"),
     },
     "loggers": {
-        "django": {"handlers": ["console"], "level": "WARNING", "propagate": False},
-        "apps.calendar_app": {"handlers": ["console"], "level": "DEBUG", "propagate": False},
-        "apps.accounts": {"handlers": ["console"], "level": "DEBUG", "propagate": False},
-        "apps.chatbot": {"handlers": ["console"], "level": "DEBUG", "propagate": False},
+        "django": {
+            "handlers": ["console", "file_error"],
+            "level": "WARNING",
+            "propagate": False,
+        },
+        "django.request": {
+            "handlers": ["console", "file_error"],
+            "level": "ERROR",
+            "propagate": False,
+        },
+        "config.middleware": {
+            "handlers": ["console", "file_general"],
+            "level": "INFO",
+            "propagate": False,
+        },
+        "apps.calendar_app": {
+            "handlers": ["console", "file_general"],
+            "level": "DEBUG",
+            "propagate": False,
+        },
+        "apps.accounts": {
+            "handlers": ["console", "file_general"],
+            "level": "DEBUG",
+            "propagate": False,
+        },
+        "apps.chatbot": {
+            "handlers": ["console", "file_general"],
+            "level": "DEBUG",
+            "propagate": False,
+        },
+        "apps.payments": {
+            "handlers": ["console", "file_general", "file_error"],
+            "level": "DEBUG",
+            "propagate": False,
+        },
+        "apps.dashboard": {
+            "handlers": ["console", "file_general"],
+            "level": "INFO",
+            "propagate": False,
+        },
+        "celery": {
+            "handlers": ["console", "file_celery"],
+            "level": "INFO",
+            "propagate": False,
+        },
+        "celery.task": {
+            "handlers": ["console", "file_celery"],
+            "level": "INFO",
+            "propagate": False,
+        },
     },
 }
 

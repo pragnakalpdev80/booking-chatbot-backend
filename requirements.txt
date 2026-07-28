@@ -78,3 +78,4 @@ mypy
 django-stubs
 bandit
 semgrep
+python-json-logger
