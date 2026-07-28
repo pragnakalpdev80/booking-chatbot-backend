@@ -111,7 +111,17 @@ class TestProviderBreakTimesView:
 
 @pytest.mark.django_db
 class TestGoogleOAuthViews:
-    def test_google_login(self, admin_client):
+    @patch("apps.calendar_app.views.logger.exception")
+    @patch("apps.calendar_app.views._get_flow")
+    def test_google_login(self, mock_get_flow, mock_logger_exc, admin_client):
+        mock_flow = MagicMock()
+        mock_flow.authorization_url.return_value = (
+            "https://accounts.google.com/o/oauth2/auth",
+            "state",
+        )
+        mock_flow.code_verifier = "mock_verifier"
+        mock_get_flow.return_value = mock_flow
+
         url = reverse("calendar_google_login")
         response = admin_client.get(url)
         assert response.status_code == status.HTTP_200_OK

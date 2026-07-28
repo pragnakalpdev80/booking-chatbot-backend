@@ -23,10 +23,10 @@ class TestCalendarUtils:
         with pytest.raises(RuntimeError):
             _get_admin_credential(user)
 
-    @patch("apps.calendar_app.utils.Flow.from_client_config")
-    def test_get_flow(self, mock_from_client_config):
+    @patch("apps.calendar_app.utils.Flow.from_client_secrets_file")
+    def test_get_flow(self, mock_from_client_secrets_file):
         _get_flow("http://localhost:8000/callback")
-        mock_from_client_config.assert_called_once()
+        mock_from_client_secrets_file.assert_called_once()
 
     @patch("apps.calendar_app.models.GoogleCredential.get_credentials")
     @patch("apps.calendar_app.utils.build")
