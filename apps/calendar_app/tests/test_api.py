@@ -329,3 +329,27 @@ class TestAdminRoutesProtected:
     def test_provider_settings_requires_admin(self, api_client):
         response = api_client.get("/api/v1/admin/provider-settings/")
         assert response.status_code in [401, 403]
+
+
+# ─── My Calendars (Admin) ────────────────────────────────────────────────────
+
+
+@pytest.mark.django_db
+class TestListProviderCalendarsView:
+    def test_list_provider_calendars_success(self, admin_client, mock_google_service):
+        mock_google_service.calendarList.return_value.list.return_value.execute.return_value = {
+            "items": [
+                {"id": "primary", "summary": "My Calendar"},
+                {"id": "abc@group.calendar.google.com", "summary": "Work Calendar"},
+            ]
+        }
+        response = admin_client.get("/api/v1/admin/my-calendars/")
+        assert response.status_code == 200
+        data = response.json()["data"]
+        assert len(data) == 2
+        assert data[0]["id"] == "primary"
+        assert data[1]["summary"] == "Work Calendar"
+
+    def test_list_provider_calendars_requires_admin(self, api_client):
+        response = api_client.get("/api/v1/admin/my-calendars/")
+        assert response.status_code in [401, 403]
