@@ -56,7 +56,7 @@ jobs:
           pip install pytest pytest-django pytest-cov
 
       - name: Run tests with coverage
-        run: pytest --cov=apps --cov-report=xml
+        run: pytest --cov=apps --cov=config --cov-report=xml
 
       - name: SonarCloud Scan
         uses: SonarSource/sonarcloud-github-action@master

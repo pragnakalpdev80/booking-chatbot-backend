@@ -63,10 +63,11 @@ django_settings_module = "config.settings.local"
 [tool.pytest.ini_options]
 DJANGO_SETTINGS_MODULE = "config.settings.local"
 python_files = ["test_*.py", "tests.py", "*_tests.py"]
-addopts = "--cov=apps --cov-report=term-missing -v"
+addopts = "--cov=apps --cov=config --cov-report=term-missing -v"
 testpaths = ["apps", "tests"]
 
 [tool.coverage.run]
+relative_files = true
 omit = [
     "*/migrations/*",
     "*/tests/*",
