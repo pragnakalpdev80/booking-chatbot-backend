@@ -106,24 +106,28 @@ class GoogleOAuth2CallbackView(APIView):
             creds = flow.credentials
         except Exception as exc:
             logger.exception("OAuth callback failed: %s", exc)
+            from django.conf import settings
             from django.http import HttpResponseRedirect
 
-            return HttpResponseRedirect(
-                "http://localhost:5173/provider/settings?error=oauth_failed"
-            )
+            base_url = getattr(settings, "FRONTEND_URL", "")
+            return HttpResponseRedirect(f"{base_url}/provider/settings?error=oauth_failed")
 
         user_id = cache.get(f"oauth_user_{state}")
         if not user_id:
+            from django.conf import settings
             from django.http import HttpResponseRedirect
 
-            return HttpResponseRedirect("http://localhost:5173/provider/settings?error=expired")
+            base_url = getattr(settings, "FRONTEND_URL", "")
+            return HttpResponseRedirect(f"{base_url}/provider/settings?error=expired")
 
         try:
             provider = User.objects.get(pk=user_id)
         except User.DoesNotExist:
+            from django.conf import settings
             from django.http import HttpResponseRedirect
 
-            return HttpResponseRedirect("http://localhost:5173/provider/settings?error=not_found")
+            base_url = getattr(settings, "FRONTEND_URL", "")
+            return HttpResponseRedirect(f"{base_url}/provider/settings?error=not_found")
 
         credential, created = GoogleCredential.objects.get_or_create(user=provider)
         credential.token = creds.to_json()
@@ -138,11 +142,11 @@ class GoogleOAuth2CallbackView(APIView):
             credential.scope,
         )
 
+        from django.conf import settings
         from django.http import HttpResponseRedirect
 
-        return HttpResponseRedirect(
-            "http://localhost:5173/provider/settings?success=google_connected"
-        )
+        base_url = getattr(settings, "FRONTEND_URL", "")
+        return HttpResponseRedirect(f"{base_url}/provider/settings?success=google_connected")
 
 
 # ─── Admin calendar CRUD ──────────────────────────────────────────────────────
