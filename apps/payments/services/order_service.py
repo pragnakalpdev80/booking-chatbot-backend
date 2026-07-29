@@ -44,7 +44,14 @@ class PaymentOrderService(BaseService):
                 session.session_key,
                 start_time,
             )
-            raise ApplicationError(messages.SLOT_LOCK_NOT_FOUND, status_code=400)
+            raise ApplicationError(
+                "EXPIRED_LOCK: The 15-minute reservation for this slot has EXPIRED. "
+                "CRITICAL INSTRUCTION: Do NOT call lock_slot again automatically. "
+                "You MUST inform the user that their 15-minute reservation "
+                "expired, and ask them if they would like to select a new time or check if "
+                "this time is still available.",
+                status_code=400,
+            )
 
         # Check for idempotency: if an order already exists for this lock, return it
         existing_order = PaymentOrder.objects.filter(
