@@ -160,6 +160,97 @@ def invalidate_freebusy_cache(provider_id: int, calendar_id: str, target_date: s
     )
 
 
+def _reconcile_single_booking(booking, ProviderSettings) -> None:
+    if booking.provider is None:
+        logger.warning(
+            "reconcile_bookings_with_gcal: booking %s has no provider — skipping.",
+            booking.pk,
+        )
+        return
+
+    assert booking.provider_id is not None, "Booking has no provider_id despite provider check"
+    try:
+        service = _get_service(booking.provider_id)
+        ps = ProviderSettings.get_for_provider(booking.provider)
+        event = (
+            service.events()
+            .get(calendarId=ps.calendar_id, eventId=booking.google_event_id)
+            .execute()
+        )
+    except HttpError as exc:
+        if exc.resp.status == 404:
+            # Event was deleted directly in Google Calendar.
+            logger.warning(
+                "reconcile_bookings_with_gcal: event %s not found in Google Calendar — "
+                "marking booking %s as CANCELLED.",
+                booking.google_event_id,
+                booking.pk,
+            )
+            from .models import BookingStatus
+
+            booking.status = BookingStatus.CANCELLED
+            booking.save(update_fields=["status", "updated_at"])
+            assert booking.provider_id is not None
+            invalidate_freebusy_cache(
+                booking.provider_id,
+                ps.calendar_id,
+                booking.start_time.date().isoformat(),
+            )
+        else:
+            logger.exception(
+                "reconcile_bookings_with_gcal: HttpError %s checking event %s — skipping.",
+                exc.resp.status,
+                booking.google_event_id,
+            )
+        return
+    except RuntimeError:
+        logger.exception(
+            "reconcile_bookings_with_gcal: could not build service for provider %s — skipping.",
+            booking.provider_id,
+        )
+        return
+
+    # Compare times — Google returns ISO 8601 with timezone offset
+    gcal_start_str = event.get("start", {}).get("dateTime")
+    gcal_end_str = event.get("end", {}).get("dateTime")
+    if not gcal_start_str or not gcal_end_str:
+        return
+
+    try:
+        gcal_start = now().__class__.fromisoformat(gcal_start_str).astimezone(UTC)
+        gcal_end = now().__class__.fromisoformat(gcal_end_str).astimezone(UTC)
+    except ValueError:
+        logger.warning(
+            "reconcile_bookings_with_gcal: could not parse datetimes for event %s — skipping.",
+            booking.google_event_id,
+        )
+        return
+
+    db_start = booking.start_time.astimezone(UTC)
+    db_end = booking.end_time.astimezone(UTC)
+
+    if gcal_start != db_start or gcal_end != db_end:
+        logger.warning(
+            "reconcile_bookings_with_gcal: time drift detected for booking %s — "
+            "DB has %s/%s, Google has %s/%s. Updating DB.",
+            booking.pk,
+            db_start.isoformat(),
+            db_end.isoformat(),
+            gcal_start.isoformat(),
+            gcal_end.isoformat(),
+        )
+        old_date = booking.start_time.date().isoformat()
+        booking.start_time = gcal_start
+        booking.end_time = gcal_end
+        booking.save(update_fields=["start_time", "end_time", "updated_at"])
+        # Invalidate cache for both old and new date (in case date changed).
+        assert booking.provider_id is not None
+        invalidate_freebusy_cache(booking.provider_id, ps.calendar_id, old_date)
+        invalidate_freebusy_cache(
+            booking.provider_id, ps.calendar_id, gcal_start.date().isoformat()
+        )
+
+
 @shared_task
 def reconcile_bookings_with_gcal() -> None:
     """
@@ -187,91 +278,6 @@ def reconcile_bookings_with_gcal() -> None:
     logger.info("reconcile_bookings_with_gcal: checking %d upcoming booking(s).", upcoming.count())
 
     for booking in upcoming:
-        if booking.provider is None:
-            logger.warning(
-                "reconcile_bookings_with_gcal: booking %s has no provider — skipping.",
-                booking.pk,
-            )
-            continue
-
-        assert booking.provider_id is not None, "Booking has no provider_id despite provider check"
-        try:
-            service = _get_service(booking.provider_id)
-            ps = ProviderSettings.get_for_provider(booking.provider)
-            event = (
-                service.events()
-                .get(calendarId=ps.calendar_id, eventId=booking.google_event_id)
-                .execute()
-            )
-        except HttpError as exc:
-            if exc.resp.status == 404:
-                # Event was deleted directly in Google Calendar.
-                logger.warning(
-                    "reconcile_bookings_with_gcal: event %s not found in Google Calendar — "
-                    "marking booking %s as CANCELLED.",
-                    booking.google_event_id,
-                    booking.pk,
-                )
-                booking.status = BookingStatus.CANCELLED
-                booking.save(update_fields=["status", "updated_at"])
-                assert booking.provider_id is not None
-                invalidate_freebusy_cache(
-                    booking.provider_id,
-                    ps.calendar_id,
-                    booking.start_time.date().isoformat(),
-                )
-            else:
-                logger.error(
-                    "reconcile_bookings_with_gcal: HttpError %s checking event %s — skipping.",
-                    exc.resp.status,
-                    booking.google_event_id,
-                )
-            continue
-        except RuntimeError:
-            logger.exception(
-                "reconcile_bookings_with_gcal: could not build service for provider %s — skipping.",
-                booking.provider_id,
-            )
-            continue
-
-        # Compare times — Google returns ISO 8601 with timezone offset
-        gcal_start_str = event.get("start", {}).get("dateTime")
-        gcal_end_str = event.get("end", {}).get("dateTime")
-        if not gcal_start_str or not gcal_end_str:
-            continue
-
-        try:
-            gcal_start = now().__class__.fromisoformat(gcal_start_str).astimezone(UTC)
-            gcal_end = now().__class__.fromisoformat(gcal_end_str).astimezone(UTC)
-        except ValueError:
-            logger.warning(
-                "reconcile_bookings_with_gcal: could not parse datetimes for event %s — skipping.",
-                booking.google_event_id,
-            )
-            continue
-
-        db_start = booking.start_time.astimezone(UTC)
-        db_end = booking.end_time.astimezone(UTC)
-
-        if gcal_start != db_start or gcal_end != db_end:
-            logger.warning(
-                "reconcile_bookings_with_gcal: time drift detected for booking %s — "
-                "DB has %s/%s, Google has %s/%s. Updating DB.",
-                booking.pk,
-                db_start.isoformat(),
-                db_end.isoformat(),
-                gcal_start.isoformat(),
-                gcal_end.isoformat(),
-            )
-            old_date = booking.start_time.date().isoformat()
-            booking.start_time = gcal_start
-            booking.end_time = gcal_end
-            booking.save(update_fields=["start_time", "end_time", "updated_at"])
-            # Invalidate cache for both old and new date (in case date changed).
-            assert booking.provider_id is not None
-            invalidate_freebusy_cache(booking.provider_id, ps.calendar_id, old_date)
-            invalidate_freebusy_cache(
-                booking.provider_id, ps.calendar_id, gcal_start.date().isoformat()
-            )
+        _reconcile_single_booking(booking, ProviderSettings)
 
     logger.info("reconcile_bookings_with_gcal: reconciliation complete.")

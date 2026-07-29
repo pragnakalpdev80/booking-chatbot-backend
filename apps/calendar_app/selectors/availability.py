@@ -106,6 +106,41 @@ class AvailabilitySelector(BaseSelector):
         ]
 
     @classmethod
+    def _is_slot_free(
+        cls,
+        slot_start: datetime,
+        slot_end: datetime,
+        busy_intervals: list[dict[str, Any]],
+        break_intervals: list[tuple[datetime, datetime]],
+    ) -> bool:
+        # Check Google Calendar busy intervals
+        for b in busy_intervals:
+            b_start = datetime.fromisoformat(b["start"].replace("Z", "+00:00"))
+            b_end = datetime.fromisoformat(b["end"].replace("Z", "+00:00"))
+            if slot_start < b_end and slot_end > b_start:
+                return False
+        # Check custom Break Times
+        for b_start, b_end in break_intervals:
+            if slot_start < b_end and slot_end > b_start:
+                return False
+        return True
+
+    @classmethod
+    def _get_active_locked_starts(cls, provider: User, query_date: date) -> set[datetime]:
+        from django.utils.timezone import now
+
+        from apps.calendar_app.models import SlotLock
+
+        return set(
+            SlotLock.objects.filter(
+                provider=provider,
+                slot_start__date=query_date,
+                expires_at__gt=now(),
+                is_confirmed=False,
+            ).values_list("slot_start", flat=True)
+        )
+
+    @classmethod
     def get_free_slots(cls, query_date: date, provider: User) -> tuple[list[dict[str, Any]], str]:
         ps = ProviderSettings.get_for_provider(provider)
 
@@ -126,37 +161,16 @@ class AvailabilitySelector(BaseSelector):
         # 4. Custom Breaks Check
         break_intervals = cls._get_break_intervals(query_date, ps)
 
-        def _is_free(slot_start: datetime, slot_end: datetime) -> bool:
-            # Check Google Calendar busy intervals
-            for b in busy_intervals:
-                b_start = datetime.fromisoformat(b["start"].replace("Z", "+00:00"))
-                b_end = datetime.fromisoformat(b["end"].replace("Z", "+00:00"))
-                if slot_start < b_end and slot_end > b_start:
-                    return False
-            # Check custom Break Times
-            for b_start, b_end in break_intervals:
-                if slot_start < b_end and slot_end > b_start:
-                    return False
-            return True
-
-        from django.utils.timezone import now
-
-        from apps.calendar_app.models import SlotLock
-
-        active_locked_starts = set(
-            SlotLock.objects.filter(
-                provider=provider,
-                slot_start__date=query_date,
-                expires_at__gt=now(),
-                is_confirmed=False,
-            ).values_list("slot_start", flat=True)
-        )
+        active_locked_starts = cls._get_active_locked_starts(provider, query_date)
 
         free_slots = []
         current = start_of_day
         while current + slot_delta <= end_of_day:
             slot_end = current + slot_delta
-            if _is_free(current, slot_end) and current not in active_locked_starts:
+            if (
+                cls._is_slot_free(current, slot_end, busy_intervals, break_intervals)
+                and current not in active_locked_starts
+            ):
                 free_slots.append({"start": current, "end": slot_end})
             current = slot_end
 

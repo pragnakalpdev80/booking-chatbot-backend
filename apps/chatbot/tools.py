@@ -38,7 +38,9 @@ SLOT_DURATION_MINUTES = 30
 
 # Constant for error message used across multiple tools
 _EMAIL_NOT_COLLECTED_MSG = "Email not collected yet. Please ask the user for their email first."
-ISO8601_TZ_DESC = "ISO 8601 datetime string with timezone offset "
+ISO8601_TZ_DESC = (
+    "ISO 8601 datetime string with timezone offset (e.g. '2026-07-25T10:00:00+05:30')."
+)
 
 # ─── Tool schemas ─────────────────────────────────────────────────────────────
 
@@ -101,7 +103,7 @@ TOOL_SCHEMAS: list[dict[str, Any]] = [
                 "properties": {
                     "start_time": {
                         "type": "string",
-                        "description": (ISO8601_TZ_DESC + "(e.g. '2026-07-25T10:00:00+05:30')."),
+                        "description": ISO8601_TZ_DESC,
                     },
                     "reason": {
                         "type": "string",
@@ -126,7 +128,7 @@ TOOL_SCHEMAS: list[dict[str, Any]] = [
                 "properties": {
                     "start_time": {
                         "type": "string",
-                        "description": (ISO8601_TZ_DESC + "(e.g. '2026-07-25T10:00:00+05:30')."),
+                        "description": ISO8601_TZ_DESC,
                     },
                 },
                 "required": ["start_time"],
@@ -146,7 +148,7 @@ TOOL_SCHEMAS: list[dict[str, Any]] = [
                 "properties": {
                     "start_time": {
                         "type": "string",
-                        "description": (ISO8601_TZ_DESC + "(e.g. '2026-07-25T10:00:00+05:30')."),
+                        "description": ISO8601_TZ_DESC,
                     },
                 },
                 "required": ["start_time"],
