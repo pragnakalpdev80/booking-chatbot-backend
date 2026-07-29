@@ -12,6 +12,12 @@
 2. **Always read `context/<app_name>/overview.md`** to understand existing models, views, serializers, and planned app structures.
 3. If a new app is being added, check whether a stub for it already exists in `context/<app_name>/overview.md` before designing it from scratch.
 
+## 0.5 After Implementation
+
+1. **Always update `context/overview.md`** if any high-level architecture, integrations, or project structure has changed.
+2. **Always update `context/<app_name>/overview.md`** immediately after modifying existing models, views, or making significant design decisions. Do this automatically before ending your turn.
+3. Treat context files as living documentation. Outdated context is worse than no context.
+
 ---
 
 ## 1. Architecture Rules

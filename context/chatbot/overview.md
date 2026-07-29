@@ -1,125 +1,23 @@
-# Chatbot App Overview
+# Context — `apps/chatbot/`
 
-> **Namespace:** `apps.chatbot`
-> **Purpose:** Manages Groq conversation sessions, message history, and the agentic tool-calling loop.
+## Purpose
 
----
+The `chatbot` app serves as the agentic reasoning layer of the platform. It wraps the Groq LLM API and provides a natural-language interface for anonymous patients to find open slots, book, reschedule, or cancel appointments.
 
-## 1. Core Responsibilities
+## Key Models (`models.py`)
 
-The `chatbot` app acts as the AI-driven natural language interface for the booking system. It implements a fully autonomous "Agentic Loop" connecting the external LLM (Groq) with the internal system capabilities (via tool calling), allowing users to request complex scheduling operations entirely via chat.
+- `ConversationSession`: Represents a continuous session for an anonymous user. Identified via a client-provided `session_key` (UUID). It stores temporary conversational state like `intent`, `pending_slot`, and `user_email` once collected.
+- `Message`: Stores the conversation history (User, Assistant, System, and Tool calls).
 
----
+## Key Endpoints (`/api/chatbot/`)
 
-## 2. Models
+- `POST /sessions/` (`StartSessionView`) — Initializes a new session and returns a `session_key` UUID.
+- `POST /message/` (`SendMessageView`) — The core loop trigger. Accepts a user message, passes it to the agent, executes tools if requested, and returns the LLM's response.
+- `GET /sessions/<uuid:session_key>/messages/` (`SessionHistoryView`) — Returns the chat history excluding internal tool calls for clean UI rendering.
+- `DELETE /sessions/<uuid:session_key>/` (`DeleteSessionView`) — Cleans up a session.
 
-### `ConversationSession`
-Represents an ongoing chat thread linked to a specific user.
+## Design Decisions
 
-```python
-class ConversationSession(models.Model):
-    session_key = models.UUIDField(default=uuid.uuid4, unique=True, editable=False, db_index=True)
-    user_email = models.EmailField(blank=True, null=True, db_index=True)
-    pending_slot_lock = models.JSONField(blank=True, null=True)
-    created_at = models.DateTimeField(auto_now_add=True)
-    updated_at = models.DateTimeField(auto_now=True)
-```
-
-### `Message`
-A single utterance in a conversation thread.
-
-```python
-class Message(models.Model):
-    ROLE_CHOICES = [
-        ("user", "User"),
-        ("assistant", "Assistant"),
-        ("system", "System"),
-        ("tool", "Tool"),
-    ]
-    session = models.ForeignKey(
-        ConversationSession, on_delete=models.CASCADE, related_name="messages"
-    )
-    role = models.CharField(max_length=10, choices=ROLE_CHOICES)
-    content = models.TextField()
-    tool_call_id = models.CharField(max_length=255, blank=True, null=True)
-    name = models.CharField(max_length=255, blank=True, null=True)  # Tool name
-    timestamp = models.DateTimeField(auto_now_add=True)
-```
-
----
-
-## 3. Tool Calling & Agentic Loop (`agent.py` & `tools.py`)
-
-### The System Prompt Context Injection
-Every time a message is sent, a dynamic system prompt is built, injecting real-time data from `apps.calendar_app.ProviderSettings` so the LLM knows the current time and the admin's working hours.
-
-```python
-# snippet from agent.py
-system_prompt = f"""You are a helpful scheduling assistant for {ps.provider_name}.
-Current date and time: {timezone.now().astimezone(tz).strftime("%Y-%m-%d %H:%M:%S")} ({ps.timezone}).
-Bookable hours are: {work_days_str}, from {ps.work_start.strftime("%H:%M")} to {ps.work_end.strftime("%H:%M")}, in {ps.slot_duration}-minute slots.
-You are speaking with: {user.get_full_name() or user.username}.
-Always confirm appointment details with the user before booking, rescheduling, or cancelling."""
-```
-
-### Available Tools (`tools.py`)
-The LLM is provided with a JSON schema defining 5 distinct tools it can use:
-
-1. **`save_session_email`**: Persists the anonymous user's email into the session context.
-2. **`get_available_slots`**: Queries `calendar_app` availability.
-3. **`book_appointment`**: Commits a booking to the calendar.
-4. **`reschedule_appointment`**: Modifies an existing booking.
-5. **`cancel_appointment`**: Deletes an existing booking.
-6. **`list_my_appointments`**: Retrieves user's `Booking` references based on their email.
-7. **`initiate_payment`**: Instructs the frontend to trigger the `payments` flow (outputs the `[PAY...]` tag).
-
-> **Note on Payment Tools:** The system dynamically filters `book_appointment` and `initiate_payment`. They are **mutually exclusive** in the schema provided to the LLM. If `payment_required` is true, only `initiate_payment` is given; otherwise, only `book_appointment` is given.
-
-Example Schema (`book_appointment`):
-```json
-{
-    "type": "function",
-    "function": {
-        "name": "book_appointment",
-        "description": "Book a slot on the admin's calendar for the current user. ALWAYS obtain explicit user confirmation before calling this tool.",
-        "parameters": {
-            "type": "object",
-            "properties": {
-                "start_time": {"type": "string", "description": "ISO format start time"},
-                "end_time": {"type": "string", "description": "ISO format end time"},
-                "reason": {"type": "string", "description": "Reason for booking"}
-            },
-            "required": ["start_time", "end_time"]
-        }
-    }
-}
-```
-
-### The Execution Flow
-1. Fetch the last 10 messages from DB to maintain context without exceeding token limits.
-2. Pass System Prompt + Context + User Message + Tool Schemas to Groq `chat.completions.create`.
-3. If Groq returns a `tool_calls` array, intercept it.
-4. Execute `tools.execute_tool(tool_name, arguments)` internally, which routes to `calendar_app` views or direct database queries.
-5. Append the result as a new `tool` role message and recursively call Groq again to synthesize the final natural language answer.
-
----
-
-## 4. Endpoints & Views
-
-The chatbot is public/anonymous. Sessions are isolated using standard UUID session keys.
-All responses are wrapped in `ApiResponse`.
-
-| Endpoint | Method | Payload / Action |
-|----------|--------|------------------|
-| `/api/v1/chat/sessions/` | `POST` | Generates a new `ConversationSession`. Returns `session_key`. Payload: `{"provider_id": 1}` |
-| `/api/v1/chat/sessions/<key>/history/` | `GET` | Retrieves full history for a session, filtering out internal `tool` messages. |
-| `/api/v1/chat/sessions/<key>/delete/` | `DELETE` | Deletes a session entirely. |
-| `/api/v1/chat/sessions/<key>/message/` | `POST` | Payload: `{"message": "Hi"}`. Triggers the Agentic Loop. |
-
----
-
-## 5. Services
-
-Business logic is encapsulated in dedicated service classes:
-- **`ChatSessionService`**: Manages session creation, retrieval, and deletion.
-- **`AgenticService`**: Wraps the agentic loop execution and properly handles application errors.
+- **Agentic Loop** (`chatbot/agent.py`): The conversation runs in a loop inside the `SendMessageView` request. If the LLM requests a tool call (e.g., `get_available_slots` or `book_appointment`), the `ToolExecutor` fires the corresponding service from `calendar_app`, feeds the result back to the LLM, and allows the LLM to generate the final human-readable response.
+- **Strict Email Enforcement**: The LLM is heavily prompted to collect the user's email address via the `save_session_email` tool before invoking any booking-related tools, acting as a lightweight authorization mechanism.
+- **Dynamic System Prompts**: The prompt injected into the session at runtime contains live data (Current Timezone, Date, Provider Name, Provider Working Hours) fetched dynamically from `ProviderSettings` to ensure accurate reasoning.

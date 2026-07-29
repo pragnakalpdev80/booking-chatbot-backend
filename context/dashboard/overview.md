@@ -1,60 +1,20 @@
-# Dashboard App Overview
+# Context — `apps/dashboard/`
 
-> **Namespace:** `apps.dashboard`
-> **Purpose:** Provides analytical and schedule overview endpoints for authenticated doctors/providers.
+## Purpose
 
----
+The `dashboard` app provides read-only aggregation endpoints specifically tailored for the React frontend's Admin Dashboard. It surfaces metrics and tabular appointment data for the provider.
 
-## 1. Core Responsibilities
+## Key Models
 
-The `dashboard` app aggregates data from `calendar_app` to give providers a high-level view of their schedules. It follows the decoupled Service/Selector pattern and operates purely on read-only queries.
+- None. This app does not persist data; it aggregates existing data primarily from `calendar_app.Booking` and `calendar_app.ProviderSettings`.
 
----
+## Key Endpoints (`/api/dashboard/`)
 
-## 2. Models
+- `GET /appointments/` (`DashboardAppointmentsView`) — Returns upcoming active appointments for the provider, heavily optimized with prefetching.
+- `GET /appointments/all/` (`DashboardAllAppointmentsView`) — Returns paginated historical and future appointments for the Data Table. Allows searching and filtering.
+- `GET /appointments/cancelled/` (`DashboardCancelledView`) — Returns only cancelled appointments.
+- `GET /stats/` (`DashboardStatsView`) — Computes high-level KPI cards (Total Bookings, Cancelled Bookings, Estimated Revenue) by aggregating `Booking` and `PaymentOrder` data within the current month.
 
-The `dashboard` app does not define any models of its own. It relies on the `apps.calendar_app.models.Booking` model to fetch data.
+## Design Decisions
 
----
-
-## 3. Services and Selectors
-
-- **`DashboardSelector`**: A selector class providing optimized queries for retrieving dashboard data.
-  - `get_appointments(provider_id, start_date_str, end_date_str, email_str)`: Retrieves strictly `CONFIRMED` and `FUTURE` (`start_time > now`) appointments for a provider (for the overview page).
-  - `get_all_appointments(provider_id, start_date_str, end_date_str, email_str)`: Retrieves all bookings for a provider ordered by `-start_time`.
-  - `get_cancelled_appointments(provider_id, start_date_str, end_date_str, email_str)`: Retrieves strictly `CANCELLED` appointments for a provider ordered by `-start_time`.
-  - `get_stats(provider_id)`: Retrieves aggregated statistics for a provider (total, today, upcoming, and cancelled appointments).
-
----
-
-## 4. Endpoints & Views
-
-All endpoints require JWT Authentication and return data wrapped in `ApiResponse`. For paginated endpoints, pagination metadata (`count`, `next`, `previous`, `page`, `page_size`) is included alongside the `data` key using `ApiResponse.paginated_response()`.
-
-| Endpoint | Method | Action |
-|----------|--------|--------|
-| `/api/v1/dashboard/appointments/` | `GET` | Returns an unpaginated list of strictly `CONFIRMED` and `FUTURE` appointments. Supports `?start_date`, `?end_date`, and `?email`. `start_date` cannot be in the past. |
-| `/api/v1/dashboard/appointments/all/` | `GET` | **Paginated** (default 10). Returns all appointments ordered descending. Supports `?start_date`, `?end_date`, and `?email` filtering. |
-| `/api/v1/dashboard/appointments/cancelled/` | `GET` | **Paginated** (default 10). Returns only cancelled appointments ordered descending. Supports `?start_date`, `?end_date`, and `?email` filtering. |
-| `/api/v1/dashboard/stats/` | `GET` | Returns aggregated statistics for the authenticated provider. |
-
-Example Response for paginated `/api/v1/dashboard/appointments/all/?page=1`:
-```json
-{
-    "success": true,
-    "message": "Success",
-    "count": 42,
-    "next": "http://.../?page=2",
-    "previous": null,
-    "page": 1,
-    "page_size": 10,
-    "data": [
-        {
-            "id": 1,
-            "email": "client@example.com",
-            "start_time": "2026-08-01T10:00:00Z",
-            "status": "confirmed"
-        }
-    ]
-}
-```
+- **Performance Over Normalization**: By creating dedicated views here instead of reusing standard ListViews in `calendar_app`, we can optimize SQL queries (aggregations, annotations, and prefetches) specifically for the heavy load of a dashboard without polluting the core logic of the calendar engine.

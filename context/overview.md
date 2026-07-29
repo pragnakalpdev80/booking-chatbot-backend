@@ -1,37 +1,34 @@
-# Booking Chatbot — Project Context
+# Project Context — Overview
+
+Brief, durable context for the Booking Chatbot backend. Context is **distributed**: this file covers project-wide structure and conventions; each app/feature keeps its own context file under `context/<app>/overview.md` as it is built.
 
 ## Purpose
-A multi-tenant, anonymous appointment scheduling chatbot powered by an AI agent (Groq/Kimi-K2)
-integrated with Google Calendar, a mock payment gateway, and a React frontend.
 
-## Architecture
-- **Backend**: Django 5 + Django REST Framework
-- **Database**: PostgreSQL (primary store) + Redis (Celery broker)
-- **LLM**: Groq Cloud API — model `moonshotai/kimi-k2` (configurable via `GROQ_MODEL`)
-- **Calendar**: Google Calendar API v3 (OAuth2, single admin credential)
-- **Frontend**: React (Vite) — separate repo under `../frontend/`
+A scalable, secure Django REST Framework backend designed to serve a dual-purpose system:
+1. **Admin Portal**: Allows medical providers (doctors) to register, authenticate via JWT, configure their availability/holidays/breaks, and synchronize with their Google Calendar.
+2. **Chatbot Interface**: Allows anonymous users (patients) to interact with an AI chatbot (Groq LLM) to list available slots, book appointments, reschedule, and cancel them natively via natural language.
 
-## Core Apps
+## Structure
 
-| App | Responsibility |
-|-----|---------------|
-| `accounts` | Provider authentication and profile management (JWT) |
-| `calendar_app` | Google Calendar OAuth, freebusy queries, Booking & SlotLock models |
-| `chatbot` | Groq AI agentic loop, ConversationSession & Message persistence |
-| `dashboard` | Provider-facing analytics and schedule overview endpoints |
-| `payments` | Mock payment gateway (Razorpay-style) with async Celery webhook handling |
+- `config/` — project configuration package: `settings/` split environments, `celery.py`, `urls.py`, middleware, exception handlers.
+- `common/` — shared, feature-agnostic utilities: custom `ApiResponse`, standard `ApplicationError`, generic `custom_exception_handler`.
+- `apps/` — feature modules:
+  - `accounts`: Provider registration and JWT authentication.
+  - `calendar_app`: Core Google Calendar integration, availability parsing, bookings.
+  - `chatbot`: Agentic loop with Groq, managing anonymous `ConversationSession`.
+  - `dashboard`: Read-only statistics and appointment listing for the admin portal.
+  - `payments`: Mock payment integration for booking deposits.
 
-## Enforced Conventions
-- Views return `ApiResponse` (wraps DRF Response).
-- All business logic lives in `services/`.
-- Read-only queries are in `selectors/`.
-- All Google Calendar writes in the payment path go through Celery (`finalize_booking_task`).
+## Enforced conventions (non-negotiable)
 
-## Key Context Documents
+- **Class-based Views** — DRF class-based views only; no function-based views.
+- **Service/Selector Layering** — Business logic is extracted from views into services (writes) and selectors (reads).
+- **Asynchronous Operations** — All write operations to external services (like Google Calendar API `events.insert`) must be deferred to Celery tasks to prevent blocking HTTP requests.
+- **Security-First** — Secrets are loaded from `.env`, Google OAuth tokens are encrypted at rest via `django-fernet-fields`.
+- **Fail-Safe Booking** — The agentic loop must ALWAYS check `freebusy` availability right before committing a booking to prevent race conditions.
 
-| Document | Description |
-|----------|-------------|
-| [`context/chatbot/overview.md`](chatbot/overview.md) | **AI Architecture deep-dive** — agent orchestration, system prompt, tool registry, and interaction flow SOPs |
-| [`context/calendar_app/`](calendar_app/) | Google Calendar integration and availability engine |
-| [`context/payments/`](payments/) | Mock payment gateway design and webhook flow |
-| [`context/accounts/`](accounts/) | Provider authentication architecture |
+## Integrations
+
+- **Google Calendar API**: The primary source of truth for events.
+- **Groq LLM**: `moonshotai/kimi-k2` model used as the reasoning engine for the chatbot.
+- **Mock Payment Gateway**: Simulates a payment flow required before a booking lock can be confirmed.

@@ -1,113 +1,24 @@
-# Accounts App Overview
+# Context — `apps/accounts/`
 
-> **Namespace:** `apps.accounts`
-> **Purpose:** Handles user self-registration, user profile management, and JWT-based authentication.
+## Purpose
 
----
+The `accounts` app handles identity, registration, authentication, and profile management for Providers (doctors/admins). It is exclusively used for the admin portal side of the application; patients/users who book via the chatbot are anonymous and do not use this app.
 
-## 1. Core Responsibilities
+## Key models (`models.py`)
 
-The `accounts` app strictly handles identity and access management for **Users** interacting with the chatbot booking system. It extends the default Django `User` model with a `UserProfile` for additional application-specific fields without tightly coupling auth logic to business logic.
+- `UserProfile` — A One-to-One extension of Django's built-in `User` model.
+  - Stores additional fields such as `phone` and `date_of_birth`.
+  - Created automatically via a `post_save` signal whenever a new `User` is instantiated.
 
----
+## Key endpoints (`/api/accounts/`)
 
-## 2. Models
+- `POST /register/` (`RegisterView`) — Allows a new provider to sign up. Creates the Django `User`. (`AllowAny`)
+- `POST /login/` (`TokenObtainPairView`) — Standard simplejwt endpoint to exchange username/password for access/refresh JWT tokens. (`AllowAny`)
+- `POST /token/refresh/` (`TokenRefreshView`) — Standard simplejwt endpoint to refresh a JWT. (`AllowAny`)
+- `GET /me/` (`MeView`) — Retrieves the currently authenticated provider's user data and profile. (`IsAuthenticated`)
+- `GET /providers/` (`ProviderListView`) — Returns a public list of available providers, utilized by the frontend to route chatbot requests to the correct doctor. Only returns providers with valid settings. (`AllowAny`)
 
-### `UserProfile`
-A one-to-one extension of the default Django `User` model.
+## Design decisions
 
-```python
-class UserProfile(models.Model):
-    user = models.OneToOneField(User, on_delete=models.CASCADE, related_name="user_profile")
-    phone = models.CharField(max_length=20, blank=True, default="")
-    date_of_birth = models.DateField(null=True, blank=True)
-    created_at = models.DateTimeField(auto_now_add=True)
-    updated_at = models.DateTimeField(auto_now=True)
-```
-
-**Key Behaviors:**
-- **Auto-creation:** A Django `post_save` signal automatically creates a blank `UserProfile` instance whenever a new `User` is created. This ensures `user.user_profile` never raises a `DoesNotExist` exception for newly registered users.
-
-```python
-@receiver(post_save, sender=User)
-def create_user_profile(sender, instance, created, **kwargs):
-    if created:
-        UserProfile.objects.get_or_create(user=instance)
-```
-
----
-
-## 3. Endpoints & Views
-
-### Authentication (JWT)
-The system relies on `djangorestframework-simplejwt` for authentication.
-
-| Endpoint | Action | Payload | Response |
-|----------|--------|---------|----------|
-| `POST /api/accounts/login/` | Validates credentials | `{"username": "...", "password": "..."}` | `{"access": "<jwt>", "refresh": "<jwt>"}` |
-| `POST /api/accounts/token/refresh/` | Issues new access token | `{"refresh": "<jwt>"}` | `{"access": "<jwt>"}` |
-
-### Registration & Profile
-
-#### `POST /api/accounts/register/` (Public)
-Creates a new User and their associated UserProfile.
-- **Expected Payload:**
-  ```json
-  {
-      "first_name": "John",
-      "last_name": "Doe",
-      "username": "johndoe",
-      "email": "john@example.com",
-      "password": "SecurePassword123!",
-      "password2": "SecurePassword123!",
-      "phone": "555-1234"
-  }
-  ```
-- **Response (201 Created):**
-  ```json
-  {
-      "message": "Registration successful.",
-      "user_id": 1,
-      "username": "johndoe"
-  }
-  ```
-
-#### `GET /api/v1/accounts/me/` (JWT Required)
-Retrieves the authenticated user's profile information.
-- **Response (200 OK):**
-  ```json
-  {
-      "success": true,
-      "message": "",
-      "data": {
-          "id": 1,
-          "username": "johndoe",
-          "email": "john@example.com",
-          "first_name": "John",
-          "last_name": "Doe",
-          "profile": {
-              "phone": "555-1234",
-              "date_of_birth": null
-          }
-      }
-  }
-  ```
-
-#### `PATCH /api/v1/accounts/me/` (JWT Required)
-Updates the authenticated user's profile information. Supports partial updates for `first_name`, `last_name`, and nested `profile` fields.
-- **Expected Payload:**
-  ```json
-  {
-      "first_name": "Jane",
-      "profile": {
-          "phone": "987-6543"
-      }
-  }
-  ```
-- **Response (200 OK):** Returns the updated profile in `data`.
-
----
-
-## 4. Dependencies & Interactions
-- Inherits core JWT configuration from `djangorestframework-simplejwt` initialized in `config/settings/base.py`.
-- Generates the base User objects that the `apps.calendar_app.Booking` and `apps.chatbot.ConversationSession` models link to via ForeignKeys.
+- **Decoupled User Identity**: The system strictly separates provider identities (who log in to the dashboard via JWT) from patient identities (who interact anonymously via UUID sessions and emails).
+- **Auto-Provisioning**: The `post_save` receiver on `User` ensures `UserProfile` is never missing, removing the need to handle `ObjectDoesNotExist` in views when serializing the profile.
