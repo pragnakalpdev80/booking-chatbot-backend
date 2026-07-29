@@ -397,9 +397,11 @@ class ProviderHolidaysView(APIView):
         serializer = HolidaySerializer(data=request.data.get("holidays", []), many=True)
         if serializer.is_valid():
             from django.db import transaction
+            from django.utils import timezone
 
             with transaction.atomic():
-                ps.holidays.all().delete()
+                today = timezone.now().date()
+                ps.holidays.filter(date__gte=today).delete()
                 serializer.save(provider_settings=ps)
             return ApiResponse(serializer.data)
         return ApiResponse(serializer.errors, status=status.HTTP_400_BAD_REQUEST)

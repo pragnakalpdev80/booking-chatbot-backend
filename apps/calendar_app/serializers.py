@@ -64,8 +64,15 @@ class AvailableSlotSerializer(serializers.Serializer):
 
 class ProviderSettingsSerializer(serializers.ModelSerializer):
     break_times = BreakTimeSerializer(many=True, read_only=True)
-    holidays = HolidaySerializer(many=True, read_only=True)
+    holidays = serializers.SerializerMethodField()
     is_google_connected = serializers.SerializerMethodField()
+
+    def get_holidays(self, obj):
+        from django.utils import timezone
+
+        today = timezone.now().date()
+        future_holidays = obj.holidays.filter(date__gte=today)
+        return HolidaySerializer(future_holidays, many=True).data
 
     def get_is_google_connected(self, obj):
         return hasattr(obj.user, "google_credential")
