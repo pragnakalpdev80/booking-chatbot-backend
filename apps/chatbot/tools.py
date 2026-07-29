@@ -390,6 +390,7 @@ def _lock_slot(session: ConversationSession, start_time: str) -> str:
 
             lock = SlotLock.objects.create(
                 session_key=session.session_key,
+                provider=session.provider,
                 slot_start=start_dt,
                 slot_end=end_dt,
                 expires_at=now() + timedelta(minutes=15),
