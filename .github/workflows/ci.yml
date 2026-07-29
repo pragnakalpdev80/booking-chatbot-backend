@@ -39,6 +39,7 @@ jobs:
       DJANGO_SETTINGS_MODULE: config.settings.local
       SECRET_KEY: dummy-secret-key-for-ci-tests-only
       FERNET_KEY: XxXxXxXxXxXxXxXxXxXxXxXxXxXxXxXxXxXxXxXxXxX=
+      FIELD_ENCRYPTION_KEY: XxXxXxXxXxXxXxXxXxXxXxXxXxXxXxXxXxXxXxXxXxX=
 
     steps:
     - uses: actions/checkout@v4
