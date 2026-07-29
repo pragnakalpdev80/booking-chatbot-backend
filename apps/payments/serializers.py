@@ -23,6 +23,12 @@ class PaymentOrderStatusSerializer(serializers.Serializer):
     expires_at = serializers.DateTimeField()
     # Included only after payment is confirmed
     booking = serializers.SerializerMethodField()
+    provider_slug = serializers.SerializerMethodField()
+
+    def get_provider_slug(self, obj):
+        if obj.booking and obj.booking.provider:
+            return obj.booking.provider.username
+        return None
 
     def get_booking(self, obj):  # noqa: D102
         if obj.booking and obj.booking.pk:
