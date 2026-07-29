@@ -74,7 +74,7 @@ class ProviderListView(APIView):
     permission_classes = [AllowAny]
 
     def get(self, request: Request) -> Response:
-        providers = User.objects.filter(is_staff=True).select_related("user_profile").order_by("id")
+        providers = User.objects.filter(is_provider=True).order_by("id")
 
         # Prefetch provider settings to get slugs
         from apps.calendar_app.models import ProviderSettings
@@ -90,9 +90,9 @@ class ProviderListView(APIView):
 
             data.append(
                 {
-                    "id": u.id,
+                    "id": str(u.id),
                     "name": u.get_full_name() or u.username,
-                    "specialty": getattr(getattr(u, "user_profile", None), "specialty", ""),
+                    "specialty": "",
                     "slug": slug,
                 }
             )

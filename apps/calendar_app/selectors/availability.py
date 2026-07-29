@@ -3,7 +3,6 @@ from datetime import date, datetime, timedelta
 from typing import Any
 from zoneinfo import ZoneInfo
 
-from django.contrib.auth.models import User
 from django.core.cache import cache
 from googleapiclient.errors import HttpError
 
@@ -18,9 +17,13 @@ logger = logging.getLogger(__name__)
 
 
 class AvailabilitySelector(BaseSelector):
-    @classmethod
+    """
+    Selector for checking provider availability.
+    Bounded to the provider (self.actor).
+    """
+
     def _get_work_hours(
-        cls, query_date: date, ps: ProviderSettings
+        self, query_date: date, ps: ProviderSettings
     ) -> tuple[datetime, datetime, timedelta] | None:
         tz = ZoneInfo(ps.timezone)
         weekday_str = str(query_date.weekday())
@@ -43,22 +46,21 @@ class AvailabilitySelector(BaseSelector):
     # without hammering the Google Calendar API when many users check the same date.
     _FREEBUSY_CACHE_TTL = 120
 
-    @classmethod
     def _fetch_google_freebusy(
-        cls, provider: User, ps: ProviderSettings, start_of_day: datetime, end_of_day: datetime
+        self, ps: ProviderSettings, start_of_day: datetime, end_of_day: datetime
     ) -> list[dict[str, Any]]:
-        cache_key = f"freebusy_{provider.pk}_{ps.calendar_id}_{start_of_day.date().isoformat()}"
+        cache_key = f"freebusy_{self.actor.pk}_{ps.calendar_id}_{start_of_day.date().isoformat()}"
         cached = cache.get(cache_key)
         if cached is not None:
             logger.debug(
                 "freebusy cache HIT for provider %s on %s",
-                provider.pk,
+                self.actor.pk,
                 start_of_day.date(),
             )
             return cached
 
         try:
-            cred = _get_admin_credential(provider)
+            cred = _get_admin_credential(self.actor)
             service = _build_service(cred)
         except RuntimeError as exc:
             raise RuntimeError(str(exc)) from exc
@@ -83,17 +85,16 @@ class AvailabilitySelector(BaseSelector):
         busy_intervals = (
             freebusy_result.get("calendars", {}).get(ps.calendar_id, {}).get("busy", [])
         )
-        cache.set(cache_key, busy_intervals, timeout=cls._FREEBUSY_CACHE_TTL)
+        cache.set(cache_key, busy_intervals, timeout=self._FREEBUSY_CACHE_TTL)
         logger.debug(
             "freebusy cache SET for provider %s on %s",
-            provider.pk,
+            self.actor.pk,
             start_of_day.date(),
         )
         return busy_intervals
 
-    @classmethod
     def _get_break_intervals(
-        cls, query_date: date, ps: ProviderSettings
+        self, query_date: date, ps: ProviderSettings
     ) -> list[tuple[datetime, datetime]]:
         tz = ZoneInfo(ps.timezone)
         breaks = ps.break_times.filter(weekday=query_date.weekday())
@@ -105,9 +106,8 @@ class AvailabilitySelector(BaseSelector):
             for b in breaks
         ]
 
-    @classmethod
     def _is_slot_free(
-        cls,
+        self,
         slot_start: datetime,
         slot_end: datetime,
         busy_intervals: list[dict[str, Any]],
@@ -125,50 +125,48 @@ class AvailabilitySelector(BaseSelector):
                 return False
         return True
 
-    @classmethod
-    def _get_active_locked_starts(cls, provider: User, query_date: date) -> set[datetime]:
+    def _get_active_locked_starts(self, query_date: date) -> set[datetime]:
         from django.utils.timezone import now
 
         from apps.calendar_app.models import SlotLock
 
         return set(
             SlotLock.objects.filter(
-                provider=provider,
+                provider=self.actor,
                 slot_start__date=query_date,
                 expires_at__gt=now(),
                 is_confirmed=False,
             ).values_list("slot_start", flat=True)
         )
 
-    @classmethod
-    def get_free_slots(cls, query_date: date, provider: User) -> tuple[list[dict[str, Any]], str]:
-        ps = ProviderSettings.get_for_provider(provider)
+    def get_free_slots(self, query_date: date) -> tuple[list[dict[str, Any]], str]:
+        ps = ProviderSettings.get_for_provider(self.actor)
 
         # 1. Holiday Check
         if ps.holidays.filter(date=query_date).exists():
             return [], ps.timezone
 
         # 2. Day Schedule Check
-        work_hours = cls._get_work_hours(query_date, ps)
+        work_hours = self._get_work_hours(query_date, ps)
         if not work_hours:
             return [], ps.timezone
 
         start_of_day, end_of_day, slot_delta = work_hours
 
         # 3. Google Calendar FreeBusy Check
-        busy_intervals = cls._fetch_google_freebusy(provider, ps, start_of_day, end_of_day)
+        busy_intervals = self._fetch_google_freebusy(ps, start_of_day, end_of_day)
 
         # 4. Custom Breaks Check
-        break_intervals = cls._get_break_intervals(query_date, ps)
+        break_intervals = self._get_break_intervals(query_date, ps)
 
-        active_locked_starts = cls._get_active_locked_starts(provider, query_date)
+        active_locked_starts = self._get_active_locked_starts(query_date)
 
         free_slots = []
         current = start_of_day
         while current + slot_delta <= end_of_day:
             slot_end = current + slot_delta
             if (
-                cls._is_slot_free(current, slot_end, busy_intervals, break_intervals)
+                self._is_slot_free(current, slot_end, busy_intervals, break_intervals)
                 and current not in active_locked_starts
             ):
                 free_slots.append({"start": current, "end": slot_end})

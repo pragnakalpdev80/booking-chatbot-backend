@@ -44,15 +44,13 @@ class ResolveProviderView(APIView):
         from apps.calendar_app.models import ProviderSettings
 
         try:
-            ps = ProviderSettings.objects.select_related("user", "user__user_profile").get(
-                slug=provider_slug
-            )
+            ps = ProviderSettings.objects.select_related("user").get(slug=provider_slug)
             return ApiResponse(
                 {
                     "id": ps.user.id,
                     "name": ps.provider_name,
                     "slug": ps.slug,
-                    "specialty": getattr(getattr(ps.user, "user_profile", None), "specialty", ""),
+                    "specialty": "",
                 }
             )
         except ProviderSettings.DoesNotExist:
@@ -60,7 +58,7 @@ class ResolveProviderView(APIView):
 
 
 class StartSessionSerializer(serializers.Serializer):
-    provider_id = serializers.IntegerField()
+    provider_id = serializers.UUIDField()
 
 
 class StartSessionView(APIView):
@@ -135,7 +133,7 @@ class SessionHistoryView(APIView):
         try:
             session = ChatSessionService.get_session(session_key)
             # Exclude internal tool messages — only show user and assistant turns
-            messages = session.messages.exclude(role="tool").order_by("timestamp")
+            messages = session.messages.exclude(role="tool").order_by("created_at")
             return ApiResponse(
                 {
                     "session_key": str(session.session_key),

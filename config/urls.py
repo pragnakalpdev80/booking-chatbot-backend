@@ -12,7 +12,11 @@ All API endpoints are under /api/:
 from django.contrib import admin
 from django.urls import include, path
 
+from common.api.health import LivenessView, ReadinessView
+
 urlpatterns = [
+    path("health/", LivenessView.as_view()),
+    path("health/ready/", ReadinessView.as_view()),
     path("admin/", admin.site.urls),
     # User auth
     path("api/v1/accounts/", include("apps.accounts.urls")),

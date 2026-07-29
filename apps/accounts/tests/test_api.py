@@ -17,20 +17,20 @@ class TestProviderListView:
         staff_user = User.objects.create_user(
             username="dr_smith",
             password="pw",
-            is_staff=True,
+            is_provider=True,
             first_name="John",
             last_name="Smith",
         )
 
         # Create a non-staff user (should not be in list)
-        User.objects.create_user(username="patient", password="pw", is_staff=False)
+        User.objects.create_user(username="patient", password="pw", is_provider=False)
 
         response = api_client.get("/api/v1/accounts/providers/")
         assert response.status_code == 200
 
         data = response.json()["data"]
         assert len(data) == 1
-        assert data[0]["id"] == staff_user.id
+        assert data[0]["id"] == str(staff_user.id)
         assert data[0]["name"] == "John Smith"
         assert data[0]["specialty"] == ""
 
@@ -40,7 +40,7 @@ class TestProviderListView:
         assert response.json()["data"] == []
 
     def test_provider_list_no_auth_required(self, api_client):
-        User.objects.create_user(username="staff1", password="pw", is_staff=True)
+        User.objects.create_user(username="staff1", password="pw", is_provider=True)
         # Client is not authenticated
         response = api_client.get("/api/v1/accounts/providers/")
         assert response.status_code == 200

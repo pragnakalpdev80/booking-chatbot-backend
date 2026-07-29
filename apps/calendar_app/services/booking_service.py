@@ -1,7 +1,6 @@
 import logging
 from datetime import datetime, timedelta
 
-from django.contrib.auth.models import User
 from googleapiclient.errors import HttpError
 
 from apps.calendar_app.models import Booking, BookingStatus, ProviderSettings
@@ -18,11 +17,13 @@ logger = logging.getLogger(__name__)
 
 
 class BookingService(BaseService):
-    @classmethod
-    def book_appointment(
-        cls, email: str, name: str, start_time: datetime, reason: str, provider: User
-    ) -> dict:
-        ps = ProviderSettings.get_for_provider(provider)
+    """
+    Service for booking, rescheduling, and cancelling appointments.
+    Bounded to the provider (self.actor).
+    """
+
+    def book_appointment(self, email: str, name: str, start_time: datetime, reason: str) -> dict:
+        ps = ProviderSettings.get_for_provider(self.actor)
 
         day_schedule = ps.day_schedules.get(str(start_time.weekday()))
         if not day_schedule or not day_schedule.get("is_active"):
@@ -31,7 +32,7 @@ class BookingService(BaseService):
             )
 
         try:
-            cred = _get_admin_credential(provider)
+            cred = _get_admin_credential(self.actor)
             service = _build_service(cred)
         except RuntimeError as exc:
             raise ApplicationError(str(exc), status_code=503) from exc
@@ -68,7 +69,7 @@ class BookingService(BaseService):
         google_event_id = created_event["id"]
 
         booking = Booking.objects.create(
-            provider=provider,
+            provider=self.actor,
             email=email,
             name=name,
             reason=reason,
@@ -81,13 +82,14 @@ class BookingService(BaseService):
         logger.info("Booking created: email=%s event=%s", email, google_event_id)
 
         return {
-            "booking_id": booking.pk,
+            "booking_id": str(booking.pk),
             "google_event_id": google_event_id,
             "status": booking.status,
         }
 
-    @classmethod
-    def reschedule_appointment(cls, email: str, event_id: str, new_start_time: datetime) -> Booking:
+    def reschedule_appointment(
+        self, email: str, event_id: str, new_start_time: datetime
+    ) -> Booking:
         try:
             booking = Booking.objects.get(google_event_id=event_id, email=email)
         except Booking.DoesNotExist as exc:
@@ -140,8 +142,7 @@ class BookingService(BaseService):
         )
         return booking
 
-    @classmethod
-    def cancel_appointment(cls, email: str, event_id: str) -> None:
+    def cancel_appointment(self, email: str, event_id: str) -> None:
         try:
             booking = Booking.objects.get(google_event_id=event_id, email=email)
         except Booking.DoesNotExist as exc:

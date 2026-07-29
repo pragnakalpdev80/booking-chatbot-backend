@@ -12,8 +12,10 @@ import uuid
 
 from django.db import models
 
+from common.models.base import UUIDModel
 
-class ConversationSession(models.Model):
+
+class ConversationSession(UUIDModel):
     """
     An anonymous chat session.
 
@@ -21,10 +23,10 @@ class ConversationSession(models.Model):
     passed with every subsequent request. No user account is required.
     """
 
-    from django.contrib.auth.models import User
+    from django.conf import settings
 
     provider = models.ForeignKey(
-        User,
+        settings.AUTH_USER_MODEL,
         on_delete=models.CASCADE,
         related_name="chat_sessions",
         help_text="The doctor this session is bound to.",
@@ -55,8 +57,6 @@ class ConversationSession(models.Model):
         blank=True,
         help_text='Temporarily holds {"start": "...", "end": "..."} awaiting email confirmation.',
     )
-    created_at = models.DateTimeField(auto_now_add=True)
-    updated_at = models.DateTimeField(auto_now=True)
 
     class Meta:
         verbose_name = "Conversation Session"
@@ -75,7 +75,7 @@ class MessageRole(models.TextChoices):
     TOOL = "tool", "Tool"
 
 
-class Message(models.Model):
+class Message(UUIDModel):
     """A single message in a conversation session."""
 
     session = models.ForeignKey(
@@ -87,12 +87,11 @@ class Message(models.Model):
     content = models.TextField()
     # Store tool call / tool result metadata as JSON when role == "tool"
     tool_call_id = models.CharField(max_length=255, blank=True, default="")
-    timestamp = models.DateTimeField(auto_now_add=True)
 
     class Meta:
         verbose_name = "Message"
         verbose_name_plural = "Messages"
-        ordering = ["timestamp"]
+        ordering = ["created_at"]
 
     def __str__(self) -> str:
         return f"Message(role={self.role}, session={self.session.session_key})"

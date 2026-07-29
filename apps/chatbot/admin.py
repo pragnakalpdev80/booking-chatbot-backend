@@ -7,8 +7,8 @@ from .models import ConversationSession, Message
 class MessageInline(admin.TabularInline):
     model = Message
     extra = 0
-    readonly_fields = ["role", "content", "tool_call_id", "timestamp"]
-    ordering = ["timestamp"]
+    readonly_fields = ["role", "content", "tool_call_id", "created_at"]
+    ordering = ["created_at"]
     can_delete = False
 
 
@@ -29,6 +29,6 @@ class ConversationSessionAdmin(admin.ModelAdmin):
 
 @admin.register(Message)
 class MessageAdmin(admin.ModelAdmin):
-    list_display = ["session", "role", "timestamp"]
+    list_display = ["session", "role", "created_at"]
     list_filter = ["role"]
-    readonly_fields = ["session", "role", "content", "tool_call_id", "timestamp"]
+    readonly_fields = ["session", "role", "content", "tool_call_id", "created_at"]

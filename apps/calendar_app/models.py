@@ -11,41 +11,25 @@ Booking           — lightweight reference table linking an anonymous user (ema
 
 import json
 import logging
+from typing import Any
 
-from cryptography.fernet import Fernet
-from django.conf import settings
-from django.contrib.auth.models import User
+from django.contrib.auth import get_user_model
 from django.db import models
 from django.utils.text import slugify
 from google.auth.transport.requests import Request
 from google.oauth2.credentials import Credentials
 
+from common.models.base import UUIDModel
+from common.models.fields import EncryptedTextField
+
+User = get_user_model()
 logger = logging.getLogger(__name__)
-
-
-# ─── Encryption helpers ───────────────────────────────────────────────────────
-
-
-def _fernet() -> Fernet:
-    """Return a Fernet instance using the FERNET_KEY from settings."""
-    key = getattr(settings, "FERNET_KEY", None)
-    if not key:
-        raise RuntimeError("FERNET_KEY is not set in settings. Cannot encrypt credential tokens.")
-    return Fernet(key.encode() if isinstance(key, str) else key)
-
-
-def encrypt_token(plaintext: str) -> str:
-    return _fernet().encrypt(plaintext.encode()).decode()
-
-
-def decrypt_token(ciphertext: str) -> str:
-    return _fernet().decrypt(ciphertext.encode()).decode()
 
 
 # ─── GoogleCredential ─────────────────────────────────────────────────────────
 
 
-class GoogleCredential(models.Model):
+class GoogleCredential(UUIDModel):
     """
     Stores the admin/owner's Google OAuth2 token (encrypted at rest).
 
@@ -60,8 +44,7 @@ class GoogleCredential(models.Model):
         related_name="google_credential",
         help_text="The admin user who owns this Google Calendar connection.",
     )
-    # Stored as Fernet-encrypted ciphertext of the JSON token string
-    token = models.TextField(help_text="Encrypted Google OAuth2 token JSON.")
+    token = EncryptedTextField(help_text="Encrypted Google OAuth2 token JSON.")
     token_updated_at = models.DateTimeField(auto_now=True)
     scope = models.TextField(
         blank=True,
@@ -76,25 +59,15 @@ class GoogleCredential(models.Model):
     def __str__(self) -> str:
         return f"GoogleCredential(user={self.user.username})"
 
-    # ── Token helpers ──────────────────────────────────────────────────────────
-
-    def set_token(self, token_json: str) -> None:
-        """Encrypt and persist the raw JSON token string."""
-        self.token = encrypt_token(token_json)
-
-    def get_token_json(self) -> str:
-        """Decrypt and return the raw JSON token string."""
-        return decrypt_token(self.token)
-
     def get_credentials(self) -> Credentials:
         """Return a google.oauth2.credentials.Credentials object, auto-refreshing if needed."""
-        creds = Credentials.from_authorized_user_info(json.loads(self.get_token_json()))
+        creds = Credentials.from_authorized_user_info(json.loads(self.token))
 
         if creds.expired and creds.refresh_token:
             logger.info("Refreshing expired Google OAuth session for user %s", self.user.username)
             creds.refresh(Request())
-            self.set_token(creds.to_json())
-            self.save(update_fields=["token", "token_updated_at"])
+            self.token = creds.to_json()
+            self.save(update_fields=["token", "token_updated_at", "updated_at"])
             logger.info("Session refreshed and persisted for user %s", self.user.username)
 
         return creds
@@ -103,7 +76,7 @@ class GoogleCredential(models.Model):
 # ─── ProviderSettings ─────────────────────────────────────────────────────────
 
 
-class ProviderSettings(models.Model):
+class ProviderSettings(UUIDModel):
     """
     Singleton assumption has been removed — there is ONE row per provider.
     Stores the provider's working hours and scheduling metadata.
@@ -165,7 +138,6 @@ class ProviderSettings(models.Model):
         default=10000,
         help_text="Booking fee in paise (smallest INR unit). 10000 = ₹100.",
     )
-    updated_at = models.DateTimeField(auto_now=True)
 
     class Meta:
         verbose_name = "Provider Settings"
@@ -175,7 +147,7 @@ class ProviderSettings(models.Model):
         return f"ProviderSettings({self.provider_name})"
 
     @classmethod
-    def get_for_provider(cls, user: User) -> "ProviderSettings":
+    def get_for_provider(cls, provider: Any) -> "ProviderSettings":
         """
         Return the settings instance for a specific provider,
         creating a default if it doesn't exist.
@@ -188,12 +160,11 @@ class ProviderSettings(models.Model):
             }
             for i in range(7)
         }
-
         obj, _ = cls.objects.get_or_create(
-            user=user,
+            user=provider,
             defaults={
-                "slug": slugify(user.username),
-                "provider_name": f"Dr. {user.last_name or user.username}",
+                "slug": slugify(provider.username),
+                "provider_name": f"Dr. {provider.last_name or provider.username}",
                 "calendar_id": "primary",
                 "day_schedules": default_schedule,
                 "slot_duration": cls.SlotDurationChoices.MIN_30,
@@ -208,7 +179,7 @@ class ProviderSettings(models.Model):
 # ─── Settings Child Models ────────────────────────────────────────────────────
 
 
-class BreakTime(models.Model):
+class BreakTime(UUIDModel):
     provider_settings = models.ForeignKey(
         ProviderSettings,
         on_delete=models.CASCADE,
@@ -228,7 +199,7 @@ class BreakTime(models.Model):
         return f"{self.get_weekday_display()} Break ({self.start} - {self.end})"
 
 
-class Holiday(models.Model):
+class Holiday(UUIDModel):
     provider_settings = models.ForeignKey(
         ProviderSettings,
         on_delete=models.CASCADE,
@@ -256,7 +227,7 @@ class BookingStatus(models.TextChoices):
     FAILED = "failed", "Failed"
 
 
-class Booking(models.Model):
+class Booking(UUIDModel):
     """
     Lightweight reference table that links an anonymous user (by email) to a
     Google Calendar event. Live event details are always fetched from the Google
@@ -302,8 +273,6 @@ class Booking(models.Model):
         choices=BookingStatus.choices,
         default=BookingStatus.CONFIRMED,
     )
-    created_at = models.DateTimeField(auto_now_add=True)
-    updated_at = models.DateTimeField(auto_now=True)
 
     class Meta:
         verbose_name = "Booking"
@@ -317,7 +286,7 @@ class Booking(models.Model):
 # ─── SlotLock ─────────────────────────────────────────────────────────────────
 
 
-class SlotLock(models.Model):
+class SlotLock(UUIDModel):
     """
     Temporary lock for a specific 30-minute time slot.
     Ensures that only one user can attempt to book a given slot at a time.
@@ -342,7 +311,6 @@ class SlotLock(models.Model):
     slot_start = models.DateTimeField(db_index=True)
     slot_end = models.DateTimeField()
     expires_at = models.DateTimeField(db_index=True)
-    locked_at = models.DateTimeField(auto_now_add=True)
     is_confirmed = models.BooleanField(
         default=False,
         db_index=True,
@@ -352,7 +320,7 @@ class SlotLock(models.Model):
     class Meta:
         verbose_name = "Slot Lock"
         verbose_name_plural = "Slot Locks"
-        ordering = ["-locked_at"]
+        ordering = ["-created_at"]
         constraints = [
             models.UniqueConstraint(
                 fields=["slot_start", "provider"],

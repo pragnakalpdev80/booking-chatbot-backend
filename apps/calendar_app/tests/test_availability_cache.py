@@ -35,9 +35,7 @@ def provider_setup(db, user):
         },
     )
     cred = GoogleCredential(user=user)
-    cred.set_token(
-        '{"token": "t", "refresh_token": "r", "client_id": "c", "client_secret": "s", "token_uri": "u"}'  # noqa: E501
-    )
+    cred.token = '{"token": "token", "refresh_token": "refresh", "client_id": "client", "client_secret": "secret", "token_uri": "uri"}'  # noqa: E501
     cred.save()
     return user, ps
 
@@ -60,7 +58,8 @@ class TestFreebusyCaching:
         start = datetime(2024, 8, 15, 9, 0, tzinfo=UTC)
         end = datetime(2024, 8, 15, 17, 0, tzinfo=UTC)
 
-        result = AvailabilitySelector._fetch_google_freebusy(user, ps, start, end)
+        selector = AvailabilitySelector(actor=user)
+        result = selector._fetch_google_freebusy(ps, start, end)
 
         assert result == []
         mock_service.freebusy().query().execute.assert_called_once()
@@ -83,7 +82,8 @@ class TestFreebusyCaching:
         cached_busy = [{"start": "2024-08-15T12:00:00Z", "end": "2024-08-15T14:00:00Z"}]
         cache.set(cache_key, cached_busy, 120)
 
-        result = AvailabilitySelector._fetch_google_freebusy(user, ps, start, end)
+        selector = AvailabilitySelector(actor=user)
+        result = selector._fetch_google_freebusy(ps, start, end)
 
         assert result == cached_busy
         mock_service.freebusy().query().execute.assert_not_called()
@@ -105,7 +105,8 @@ class TestFreebusyCaching:
         start = datetime(2024, 8, 20, 9, 0, tzinfo=UTC)
         end = datetime(2024, 8, 20, 17, 0, tzinfo=UTC)
 
-        AvailabilitySelector._fetch_google_freebusy(user, ps, start, end)
+        selector = AvailabilitySelector(actor=user)
+        selector._fetch_google_freebusy(ps, start, end)
 
         cache_key = f"freebusy_{user.pk}_{ps.calendar_id}_{start.date().isoformat()}"
         assert cache.get(cache_key) == busy

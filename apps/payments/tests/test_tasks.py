@@ -36,9 +36,7 @@ class TestFinalizeBookingTask:
     @patch("apps.payments.tasks.get_gcal_service")
     def test_finalize_booking_success(self, mock_get_gcal, payment_order):
         cred = GoogleCredential(user=payment_order.booking.provider)
-        cred.set_token(
-            '{"token": "token", "refresh_token": "refresh", "client_id": "client", "client_secret": "secret", "token_uri": "uri"}'
-        )
+        cred.token = '{"token": "token", "refresh_token": "refresh", "client_id": "client", "client_secret": "secret", "token_uri": "uri"}'
         cred.save()
 
         mock_service = MagicMock()
@@ -73,9 +71,7 @@ class TestFinalizeBookingTask:
     @patch("apps.payments.tasks.finalize_booking_task.retry")
     def test_finalize_booking_http_error(self, mock_retry, mock_get_gcal, payment_order):
         cred = GoogleCredential(user=payment_order.booking.provider)
-        cred.set_token(
-            '{"token": "token", "refresh_token": "refresh", "client_id": "client", "client_secret": "secret", "token_uri": "uri"}'
-        )
+        cred.token = '{"token": "token", "refresh_token": "refresh", "client_id": "client", "client_secret": "secret", "token_uri": "u"}'
         cred.save()
 
         mock_service = MagicMock()

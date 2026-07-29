@@ -97,12 +97,12 @@ def _build_system_prompt(session: ConversationSession, ps: ProviderSettings) -> 
             "**PAYMENT IS NOT REQUIRED.** After locking a slot, you MUST call book_appointment."
         )
 
-    # Use order_by("-locked_at") to always pick the most recent lock, ignoring orphaned ones
+    # Use order_by("-created_at") to always pick the most recent lock, ignoring orphaned ones
     active_lock = (
         SlotLock.objects.filter(
             session_key=session.session_key, is_confirmed=False, expires_at__gt=now
         )
-        .order_by("-locked_at")
+        .order_by("-created_at")
         .first()
     )
 
@@ -290,7 +290,7 @@ def _prepare_groq_messages(
     session: ConversationSession, ps: ProviderSettings
 ) -> list[dict[str, Any]]:
     system_prompt = _build_system_prompt(session, ps)
-    recent_messages = list(session.messages.order_by("-timestamp")[:ROLLING_CONTEXT_LIMIT])
+    recent_messages = list(session.messages.order_by("-created_at")[:ROLLING_CONTEXT_LIMIT])
     recent_messages.reverse()
 
     groq_messages: list[dict[str, Any]] = [{"role": "system", "content": system_prompt}]

@@ -52,15 +52,8 @@ class BookingAdmin(admin.ModelAdmin):
 
 @admin.register(SlotLock)
 class SlotLockAdmin(admin.ModelAdmin):
-    list_display = [
-        "slot_start",
-        "slot_end",
-        "session_key",
-        "expires_at",
-        "locked_at",
-        "is_confirmed",
-    ]
-    list_filter = ["is_confirmed"]
-    search_fields = ["session_key"]
-    readonly_fields = ["locked_at"]
-    ordering = ["-locked_at"]
+    list_display = ["slot_start", "slot_end", "provider", "is_confirmed", "created_at"]
+    list_filter = ["is_confirmed", "provider"]
+    search_fields = ["provider__username", "provider__email"]
+    ordering = ["-created_at"]
+    readonly_fields = ["created_at"]

@@ -120,6 +120,7 @@ class TestBookAppointmentView:
             "provider_id": admin_user.id,
         }
         response = api_client.post("/api/v1/appointments/book/", payload, format="json")
+        print(response.data)
         assert response.status_code == 201
         assert response.data["data"]["google_event_id"] == "new_evt_001"
         assert Booking.objects.filter(email="anon@example.com").exists()

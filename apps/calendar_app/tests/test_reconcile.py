@@ -32,9 +32,7 @@ def provider_with_cred(db, user):
     """Create a provider user with Google credential and provider settings."""
     ProviderSettings.objects.get_or_create(user=user, defaults={"payment_required": False})
     cred = GoogleCredential(user=user)
-    cred.set_token(
-        '{"token": "tok", "refresh_token": "rt", "client_id": "ci", "client_secret": "cs", "token_uri": "u"}'  # noqa: E501
-    )
+    cred.token = '{"token": "token", "refresh_token": "refresh", "client_id": "client", "client_secret": "secret", "token_uri": "uri"}'  # noqa: E501
     cred.save()
     return user
 

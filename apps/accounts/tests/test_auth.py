@@ -25,8 +25,8 @@ class TestRegisterView:
         assert "user_id" in response.data["data"]
 
         user = User.objects.get(username="johndoe")
-        assert user.is_staff is True
-        assert user.user_profile.phone == "1234567890"
+        assert user.is_provider is True
+        assert user.phone == "1234567890"
 
     def test_register_password_mismatch(self, client):
         url = reverse("register")
@@ -53,16 +53,16 @@ class TestMeView:
 
     def test_patch_me_success(self, admin_client, admin_user):
         url = reverse("accounts_me")
-        data = {"first_name": "Updated", "profile": {"phone": "9876543210"}}
+        data = {"first_name": "Updated", "phone": "9876543210"}
         response = admin_client.patch(url, data, format="json")
         assert response.status_code == status.HTTP_200_OK
 
         admin_user.refresh_from_db()
         assert admin_user.first_name == "Updated"
-        assert admin_user.user_profile.phone == "9876543210"
+        assert admin_user.phone == "9876543210"
 
     def test_patch_me_invalid(self, admin_client, admin_user):
         url = reverse("accounts_me")
-        data = {"profile": {"date_of_birth": "invalid-date"}}
+        data = {"date_of_birth": "invalid-date"}
         response = admin_client.patch(url, data, format="json")
         assert response.status_code == status.HTTP_400_BAD_REQUEST

@@ -1,9 +1,10 @@
 from django.db import models
 
 from apps.payments.constants import PaymentStatus
+from common.models.base import UUIDModel
 
 
-class PaymentOrder(models.Model):
+class PaymentOrder(UUIDModel):
     mock_order_id = models.CharField(max_length=64, unique=True)
     mock_payment_id = models.CharField(max_length=64, blank=True)
     mock_signature = models.CharField(max_length=256, blank=True)
@@ -19,8 +20,6 @@ class PaymentOrder(models.Model):
     )
     payment_url = models.URLField()
     expires_at = models.DateTimeField()
-    created_at = models.DateTimeField(auto_now_add=True)
-    updated_at = models.DateTimeField(auto_now=True)
 
     class Meta:
         indexes = [

@@ -10,14 +10,12 @@ from apps.calendar_app.utils import _build_service, _get_admin_credential, _get_
 class TestCalendarUtils:
     def test_get_admin_credential_success(self, user):
         cred = GoogleCredential(user=user)
-        cred.set_token(
-            '{"token": "token", "refresh_token": "refresh", "client_id": "client", "client_secret": "secret", "token_uri": "uri"}'  # noqa: E501
-        )
+        cred.token = '{"token": "token", "refresh_token": "refresh", "client_id": "client", "client_secret": "secret", "token_uri": "uri"}'  # noqa: E501
         cred.save()
         cred = _get_admin_credential(user)
         import json
 
-        assert json.loads(cred.get_token_json())["token"] == "token"
+        assert json.loads(cred.token)["token"] == "token"
 
     def test_get_admin_credential_missing(self, user):
         with pytest.raises(RuntimeError):
@@ -34,9 +32,7 @@ class TestCalendarUtils:
         mock_creds = MagicMock()
         mock_get_credentials.return_value = mock_creds
         cred = GoogleCredential(user=user)
-        cred.set_token(
-            '{"token": "token", "refresh_token": "refresh", "client_id": "client", "client_secret": "secret", "token_uri": "uri"}'  # noqa: E501
-        )
+        cred.token = '{"token": "token", "refresh_token": "refresh", "client_id": "client", "client_secret": "secret", "token_uri": "uri"}'  # noqa: E501
         cred.save()
         cred = _get_admin_credential(user)
         _build_service(cred)

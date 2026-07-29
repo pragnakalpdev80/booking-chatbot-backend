@@ -1,4 +1,5 @@
 import datetime
+from typing import Any
 
 from django.utils import timezone
 
@@ -8,7 +9,7 @@ from apps.calendar_app.models import Booking, BookingStatus
 class DashboardSelector:
     @staticmethod
     def get_appointments(
-        provider_id: int,
+        provider_id: Any,
         start_date_str: str | None = None,
         end_date_str: str | None = None,
         email_str: str | None = None,
@@ -48,7 +49,7 @@ class DashboardSelector:
 
     @staticmethod
     def get_all_appointments(
-        provider_id: int,
+        provider_id: Any,
         start_date_str: str | None = None,
         end_date_str: str | None = None,
         email_str: str | None = None,
@@ -62,7 +63,7 @@ class DashboardSelector:
 
     @staticmethod
     def get_cancelled_appointments(
-        provider_id: int,
+        provider_id: Any,
         start_date_str: str | None = None,
         end_date_str: str | None = None,
         email_str: str | None = None,
@@ -74,7 +75,7 @@ class DashboardSelector:
         return DashboardSelector._apply_filters(qs, start_date_str, end_date_str, email_str)
 
     @staticmethod
-    def get_stats(provider_id: int):
+    def get_stats(provider_id: Any):
         """Get stats for a provider."""
         today = timezone.now().date()
         now = timezone.now()

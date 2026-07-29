@@ -42,7 +42,9 @@ def slot_lock(db, session):
 
 @pytest.fixture
 def payment_order(db, session, slot_lock):
-    return PaymentOrderService().create(session, slot_lock.slot_start, "Checkup")
+    return PaymentOrderService(actor=session.provider).create(
+        session, slot_lock.slot_start, "Checkup"
+    )
 
 
 @pytest.mark.django_db

@@ -104,7 +104,7 @@ class TestAgenticLoop:
         )
 
         # Verify messages persisted
-        messages = list(session.messages.order_by("timestamp"))
+        messages = list(session.messages.order_by("created_at"))
         assert len(messages) == 3
         assert messages[0].role == MessageRole.USER
         assert messages[1].role == MessageRole.TOOL
@@ -256,7 +256,7 @@ class TestAgenticLoop:
         response_text = run_agentic_loop(session, "Hi")
 
         assert response_text == "I fixed it."
-        messages = list(session.messages.order_by("timestamp"))
+        messages = list(session.messages.order_by("created_at"))
         assert len(messages) == 3
         assert messages[1].role == MessageRole.TOOL
         assert "invalid_arguments" in messages[1].content
@@ -294,7 +294,7 @@ class TestAgenticLoop:
         response_text = run_agentic_loop(session, "Hi")
 
         assert response_text == "I handled the error."
-        messages = list(session.messages.order_by("timestamp"))
+        messages = list(session.messages.order_by("created_at"))
         assert len(messages) == 3
         assert messages[1].role == MessageRole.TOOL
         assert "database_error_occurred" in messages[1].content

@@ -803,7 +803,7 @@ def _list_my_appointments(
 
     result = [
         {
-            "booking_id": b.pk,
+            "booking_id": str(b.pk),
             "google_event_id": b.google_event_id,
             "start_time": b.start_time.astimezone(tz).isoformat(),
             "end_time": b.end_time.astimezone(tz).isoformat(),
@@ -832,7 +832,10 @@ def _initiate_payment(session: ConversationSession, start_time: str, reason: str
     start_dt = datetime.fromisoformat(start_time)
 
     try:
-        order = PaymentOrderService().create(session=session, start_time=start_dt, reason=reason)
+        assert session.provider is not None
+        order = PaymentOrderService(actor=session.provider).create(
+            session=session, start_time=start_dt, reason=reason
+        )
         # We output a special tag that the frontend will parse to show the payment card
         return json.dumps(
             {

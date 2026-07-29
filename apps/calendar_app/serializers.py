@@ -3,9 +3,12 @@
 Serializers for Google Calendar events, ProviderSettings, and anonymous Booking records.
 """
 
+from django.contrib.auth import get_user_model
 from rest_framework import serializers
 
 from .models import Booking, BreakTime, Holiday, ProviderSettings
+
+User = get_user_model()
 
 
 class BreakTimeSerializer(serializers.ModelSerializer):
@@ -94,6 +97,9 @@ class ProviderSettingsSerializer(serializers.ModelSerializer):
             "day_schedules",
             "slot_duration",
             "timezone",
+            "payment_required",
+            "booking_fee_paise",
+            "calendar_id",
             "updated_at",
             "break_times",
             "holidays",
@@ -110,8 +116,6 @@ class ProviderListSerializer(serializers.ModelSerializer):
     timezone = serializers.CharField(source="provider_settings.timezone", read_only=True)
 
     class Meta:
-        from django.contrib.auth.models import User
-
         model = User
         fields = [
             "id",
@@ -149,7 +153,7 @@ class BookAppointmentSerializer(serializers.Serializer):
     """
 
     email = serializers.EmailField()
-    provider_id = serializers.IntegerField()
+    provider_id = serializers.UUIDField()
     name = serializers.CharField(required=False, allow_blank=True, default="")
     start_time = serializers.DateTimeField()
     reason = serializers.CharField(required=False, allow_blank=True, default="")

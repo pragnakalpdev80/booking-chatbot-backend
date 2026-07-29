@@ -13,12 +13,12 @@ logger = logging.getLogger(__name__)
 
 
 @shared_task(bind=True, max_retries=3, default_retry_delay=30)
-def finalize_booking_task(self, payment_order_pk: int) -> None:
-    logger.info("Starting finalize_booking_task for payment_order_pk=%d", payment_order_pk)
+def finalize_booking_task(self, payment_order_pk: str) -> None:
+    logger.info("Starting finalize_booking_task for payment_order_pk=%s", payment_order_pk)
     try:
         order = PaymentOrder.objects.select_related("booking__provider").get(pk=payment_order_pk)
     except PaymentOrder.DoesNotExist:
-        logger.warning("finalize_booking_task: PaymentOrder %d not found.", payment_order_pk)
+        logger.warning("finalize_booking_task: PaymentOrder %s not found.", payment_order_pk)
         return
 
     booking = order.booking

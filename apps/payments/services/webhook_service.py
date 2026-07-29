@@ -8,12 +8,14 @@ from apps.payments.constants import PaymentStatus
 from apps.payments.models import PaymentOrder
 from apps.payments.tasks import finalize_booking_task
 from common.api.exceptions import ApplicationError
-from common.services.base import BaseService
 
 logger = logging.getLogger(__name__)
 
 
-class PaymentWebhookService(BaseService):
+class PaymentWebhookService:
+    def __init__(self, actor=None, **kwargs):
+        pass
+
     def handle_success(self, order_id: str, payment_id: str, signature: str) -> None:
         """Mark order as paid and dispatch Celery task for GCal write (CLAUDE.md §2.5)."""
         order = self._get_order(order_id)

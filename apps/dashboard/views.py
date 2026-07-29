@@ -1,8 +1,8 @@
 import logging
 
-from rest_framework.permissions import IsAuthenticated
 from rest_framework.views import APIView
 
+from common.api.permissions import IsProviderUser
 from common.api.response import ApiResponse
 
 from .pagination import DashboardPagination
@@ -37,7 +37,7 @@ def _validate_start_date(start_date_str: str | None):
 class DashboardAppointmentsView(APIView):
     """GET /api/v1/dashboard/appointments/"""
 
-    permission_classes = [IsAuthenticated]
+    permission_classes = [IsProviderUser]
 
     def get(self, request):
         provider_id = request.user.id
@@ -59,7 +59,7 @@ class DashboardAppointmentsView(APIView):
 class DashboardAllAppointmentsView(APIView):
     """GET /api/v1/dashboard/appointments/all/"""
 
-    permission_classes = [IsAuthenticated]
+    permission_classes = [IsProviderUser]
 
     def get(self, request):
         provider_id = request.user.id
@@ -85,7 +85,7 @@ class DashboardAllAppointmentsView(APIView):
 class DashboardCancelledView(APIView):
     """GET /api/v1/dashboard/appointments/cancelled/"""
 
-    permission_classes = [IsAuthenticated]
+    permission_classes = [IsProviderUser]
 
     def get(self, request):
         provider_id = request.user.id
@@ -111,7 +111,7 @@ class DashboardCancelledView(APIView):
 class DashboardStatsView(APIView):
     """GET /api/v1/dashboard/stats/"""
 
-    permission_classes = [IsAuthenticated]
+    permission_classes = [IsProviderUser]
 
     def get(self, request):
         provider_id = request.user.id

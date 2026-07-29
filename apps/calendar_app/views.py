@@ -2,7 +2,7 @@
 """
 Google Calendar integration views.
 
-Admin-only endpoints (IsAdminUser):
+Admin-only endpoints (IsProviderUser):
   GET    /api/calendar/login/                       — initiate Google OAuth
   GET    /api/calendar/oauth2callback/              — handle OAuth callback
   GET    /api/calendar/events/                      — list upcoming events
@@ -23,17 +23,18 @@ Anonymous endpoints (AllowAny):
 import logging
 from datetime import datetime, timedelta
 
-from django.contrib.auth.models import User
+from django.contrib.auth import get_user_model
 from django.core.cache import cache
 from googleapiclient.errors import HttpError
 from rest_framework import status
-from rest_framework.permissions import AllowAny, IsAdminUser
+from rest_framework.permissions import AllowAny
 from rest_framework.views import APIView
 
 from apps.calendar_app.selectors.availability import AvailabilitySelector
 from apps.calendar_app.selectors.booking import BookingSelector
 from apps.calendar_app.services.booking_service import BookingService
 from common.api.exceptions import ApplicationError
+from common.api.permissions import IsProviderUser
 from common.api.response import ApiResponse
 
 from .models import GoogleCredential, ProviderSettings
@@ -56,6 +57,8 @@ from .utils import (
 
 logger = logging.getLogger(__name__)
 
+User = get_user_model()
+
 # Full read/write scope
 
 
@@ -65,7 +68,7 @@ logger = logging.getLogger(__name__)
 class GoogleLoginView(APIView):
     """Initiate Google OAuth — admin only."""
 
-    permission_classes = [IsAdminUser]
+    permission_classes = [IsProviderUser]
 
     def get(self, request):
         logger.debug("GoogleLoginView GET by user %s", request.user.username)
@@ -123,7 +126,7 @@ class GoogleOAuth2CallbackView(APIView):
             return HttpResponseRedirect("http://localhost:5173/provider/settings?error=not_found")
 
         credential, created = GoogleCredential.objects.get_or_create(user=provider)
-        credential.set_token(creds.to_json())
+        credential.token = creds.to_json()
         credential.scope = " ".join(creds.scopes or [])
         credential.save()
 
@@ -188,7 +191,8 @@ class AvailabilityView(APIView):
             )
 
         try:
-            free_slots, timezone = AvailabilitySelector.get_free_slots(query_date, provider)
+            selector = AvailabilitySelector(actor=provider)
+            free_slots, timezone = selector.get_free_slots(query_date)
         except RuntimeError as exc:
             return ApiResponse({"error": str(exc)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
 
@@ -215,7 +219,7 @@ class BookAppointmentView(APIView):
             return ApiResponse(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
 
         email: str = serializer.validated_data["email"]
-        provider_id: int = serializer.validated_data["provider_id"]
+        provider_id: str = str(serializer.validated_data["provider_id"])
         name: str = serializer.validated_data.get("name", "")
         start_dt: datetime = serializer.validated_data["start_time"]
         reason: str = serializer.validated_data.get("reason", "")
@@ -226,8 +230,12 @@ class BookAppointmentView(APIView):
             return ApiResponse({"error": "Provider not found."}, status=status.HTTP_404_NOT_FOUND)
 
         try:
-            result = BookingService.book_appointment(
-                email=email, name=name, start_time=start_dt, reason=reason, provider=provider
+            service = BookingService(actor=provider)
+            result = service.book_appointment(
+                email=email,
+                name=name,
+                start_time=start_dt,
+                reason=reason,
             )
             # Add required fields for response
             end_dt = start_dt + timedelta(minutes=SLOT_DURATION_MINUTES)
@@ -279,7 +287,19 @@ class RescheduleAppointmentView(APIView):
         new_start: datetime = serializer.validated_data["new_start_time"]
 
         try:
-            booking = BookingService.reschedule_appointment(email, event_id, new_start)
+            from apps.calendar_app.models import Booking
+
+            booking = Booking.objects.get(google_event_id=event_id, email=email)
+        except Booking.DoesNotExist:
+            return ApiResponse(
+                {"error": "Booking not found for this email and event ID."},
+                status=status.HTTP_404_NOT_FOUND,
+            )
+
+        try:
+            assert booking.provider is not None
+            service = BookingService(actor=booking.provider)
+            booking = service.reschedule_appointment(email, event_id, new_start)
             return ApiResponse(BookingSerializer(booking).data)
         except ApplicationError as e:
             return ApiResponse({"error": str(e)}, status=e.status_code)
@@ -302,7 +322,19 @@ class CancelAppointmentView(APIView):
         email: str = serializer.validated_data["email"]
 
         try:
-            BookingService.cancel_appointment(email, event_id)
+            from apps.calendar_app.models import Booking
+
+            booking = Booking.objects.get(google_event_id=event_id, email=email)
+        except Booking.DoesNotExist:
+            return ApiResponse(
+                {"error": "Booking not found for this email and event ID."},
+                status=status.HTTP_404_NOT_FOUND,
+            )
+
+        try:
+            assert booking.provider is not None
+            service = BookingService(actor=booking.provider)
+            service.cancel_appointment(email, event_id)
             return ApiResponse(status=status.HTTP_204_NO_CONTENT)
         except ApplicationError as e:
             return ApiResponse({"error": str(e)}, status=e.status_code)
@@ -314,7 +346,7 @@ class CancelAppointmentView(APIView):
 class ProviderSettingsView(APIView):
     """GET/PATCH /api/admin/provider-settings/ (admin only)"""
 
-    permission_classes = [IsAdminUser]
+    permission_classes = [IsProviderUser]
 
     def get(self, request):
         logger.debug("ProviderSettingsView GET by %s", request.user.username)
@@ -334,7 +366,7 @@ class ProviderSettingsView(APIView):
 class ProviderBreakTimesView(APIView):
     """PUT /api/admin/provider-settings/breaks/ (admin only)"""
 
-    permission_classes = [IsAdminUser]
+    permission_classes = [IsProviderUser]
 
     def _validate_break_overlaps(self, breaks_data: list[dict]) -> str | None:
         import datetime
@@ -390,7 +422,7 @@ class ProviderBreakTimesView(APIView):
 class ProviderHolidaysView(APIView):
     """PUT /api/admin/provider-settings/holidays/ (admin only)"""
 
-    permission_classes = [IsAdminUser]
+    permission_classes = [IsProviderUser]
 
     def put(self, request):
         ps = ProviderSettings.get_for_provider(request.user)
@@ -413,7 +445,9 @@ class ProviderListView(APIView):
     permission_classes = [AllowAny]
 
     def get(self, request):
-        from django.contrib.auth.models import User
+        from django.contrib.auth import get_user_model
+
+        User = get_user_model()
 
         from apps.calendar_app.serializers import ProviderListSerializer
 
@@ -429,7 +463,7 @@ class ProviderListView(APIView):
 class ListProviderCalendarsView(APIView):
     """GET /api/admin/my-calendars/ (Admin only) — returns all calendars in the doctor's account."""
 
-    permission_classes = [IsAdminUser]
+    permission_classes = [IsProviderUser]
 
     def get(self, request):
         try:

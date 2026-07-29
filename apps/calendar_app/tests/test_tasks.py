@@ -25,9 +25,7 @@ from apps.calendar_app.tasks import (
 def booking(db, user):
     ProviderSettings.objects.create(user=user, payment_required=False)
     cred = GoogleCredential(user=user)
-    cred.set_token(
-        '{"token": "token", "refresh_token": "refresh", "client_id": "client", "client_secret": "secret", "token_uri": "uri"}'  # noqa: E501
-    )
+    cred.token = '{"token": "token", "refresh_token": "refresh", "client_id": "client", "client_secret": "secret", "token_uri": "uri"}'  # noqa: E501
     cred.save()
     return Booking.objects.create(
         provider=user,

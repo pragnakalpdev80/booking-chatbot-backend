@@ -3,17 +3,11 @@
 Serializers for user registration, profile retrieval, and JWT token responses.
 """
 
-from django.contrib.auth.models import User
+from django.contrib.auth import get_user_model
 from django.contrib.auth.password_validation import validate_password
 from rest_framework import serializers
 
-from .models import UserProfile
-
-
-class UserProfileSerializer(serializers.ModelSerializer):
-    class Meta:
-        model = UserProfile
-        fields = ["phone", "date_of_birth"]
+User = get_user_model()
 
 
 class RegisterSerializer(serializers.ModelSerializer):
@@ -31,8 +25,6 @@ class RegisterSerializer(serializers.ModelSerializer):
         style={"input_type": "password"},
         label="Confirm password",
     )
-    phone = serializers.CharField(required=False, allow_blank=True, default="")
-    date_of_birth = serializers.DateField(required=False, allow_null=True, default=None)
 
     class Meta:
         model = User
@@ -58,45 +50,25 @@ class RegisterSerializer(serializers.ModelSerializer):
         return attrs
 
     def create(self, validated_data):
-        phone = validated_data.pop("phone", "")
-        date_of_birth = validated_data.pop("date_of_birth", None)
-
+        # Grant provider status so the user is recognized as a provider automatically
+        validated_data["is_provider"] = True
         user = User.objects.create_user(**validated_data)
-
-        # Grant staff status so the user is recognized as a provider
-        user.is_staff = True
-        user.save(update_fields=["is_staff"])
-
-        # UserProfile is auto-created by signal; update extra fields if provided
-        profile = user.user_profile
-        profile.phone = phone
-        profile.date_of_birth = date_of_birth
-        profile.save()
-
         return user
 
 
 class MeSerializer(serializers.ModelSerializer):
     """Retrieve own profile."""
 
-    profile = UserProfileSerializer(source="user_profile")
-
     class Meta:
         model = User
-        fields = ["id", "username", "email", "first_name", "last_name", "profile"]
-        read_only_fields = ["id", "username", "email"]
-
-    def update(self, instance, validated_data):
-        profile_data = validated_data.pop("user_profile", {})
-
-        instance.first_name = validated_data.get("first_name", instance.first_name)
-        instance.last_name = validated_data.get("last_name", instance.last_name)
-        instance.save()
-
-        if profile_data:
-            profile = instance.user_profile
-            profile.phone = profile_data.get("phone", profile.phone)
-            profile.date_of_birth = profile_data.get("date_of_birth", profile.date_of_birth)
-            profile.save()
-
-        return instance
+        fields = [
+            "id",
+            "username",
+            "email",
+            "first_name",
+            "last_name",
+            "phone",
+            "date_of_birth",
+            "is_provider",
+        ]
+        read_only_fields = ["id", "username", "email", "is_provider"]

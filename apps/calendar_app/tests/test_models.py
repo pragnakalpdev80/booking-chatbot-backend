@@ -12,8 +12,6 @@ from apps.calendar_app.models import (
     Booking,
     BookingStatus,
     ProviderSettings,
-    decrypt_token,
-    encrypt_token,
 )
 
 
@@ -99,12 +97,3 @@ class TestProviderSettingsModel:
         assert ps.day_schedules["1"]["is_active"] is True
         assert ps.day_schedules["5"]["is_active"] is False
         assert ps.calendar_id == "primary"
-
-
-@pytest.mark.django_db
-class TestEncryptionHelpers:
-    def test_encrypt_decrypt_roundtrip(self):
-        plaintext = '{"token": "abc123"}'
-        ciphertext = encrypt_token(plaintext)
-        assert ciphertext != plaintext
-        assert decrypt_token(ciphertext) == plaintext

@@ -38,7 +38,7 @@ class CreatePaymentOrderView(APIView):
             return ApiResponse(message="Session not found", status=status.HTTP_404_NOT_FOUND)
 
         try:
-            order = PaymentOrderService().create(
+            order = PaymentOrderService(actor=session.provider).create(
                 session=session,
                 start_time=serializer.validated_data["start_time"],
                 reason=serializer.validated_data.get("reason", ""),

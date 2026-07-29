@@ -38,7 +38,7 @@ def slot_lock(db, session):
 class TestPaymentOrderService:
     def test_create_happy_path(self, session, slot_lock):
         start_time = slot_lock.slot_start
-        order = PaymentOrderService().create(session, start_time, "Checkup")
+        order = PaymentOrderService(actor=session.provider).create(session, start_time, "Checkup")
 
         assert order.status == PaymentStatus.CREATED
         assert order.amount_paise == 10000
@@ -53,7 +53,7 @@ class TestPaymentOrderService:
 
     def test_create_no_active_slot_lock(self, session):
         start_time = now() + timedelta(days=1)
-        service = PaymentOrderService()
+        service = PaymentOrderService(actor=session.provider)
         with pytest.raises(ApplicationError) as excinfo:
             service.create(session, start_time, "Checkup")
         assert excinfo.value.status_code == 400
@@ -61,7 +61,7 @@ class TestPaymentOrderService:
     def test_create_expired_slot_lock(self, session, slot_lock):
         slot_lock.expires_at = now() - timedelta(minutes=1)
         slot_lock.save()
-        service = PaymentOrderService()
+        service = PaymentOrderService(actor=session.provider)
         with pytest.raises(ApplicationError) as excinfo:
             service.create(session, slot_lock.slot_start, "Checkup")
         assert excinfo.value.status_code == 400
@@ -69,15 +69,15 @@ class TestPaymentOrderService:
     def test_create_empty_email(self, session, slot_lock):
         session.user_email = ""
         session.save()
-        service = PaymentOrderService()
+        service = PaymentOrderService(actor=session.provider)
         with pytest.raises(ApplicationError) as excinfo:
             service.create(session, slot_lock.slot_start, "Checkup")
         assert excinfo.value.status_code == 400
 
     def test_create_idempotency(self, session, slot_lock):
         start_time = slot_lock.slot_start
-        order1 = PaymentOrderService().create(session, start_time, "Checkup")
-        order2 = PaymentOrderService().create(session, start_time, "Checkup")
+        order1 = PaymentOrderService(actor=session.provider).create(session, start_time, "Checkup")
+        order2 = PaymentOrderService(actor=session.provider).create(session, start_time, "Checkup")
         assert order1.id == order2.id
         assert Booking.objects.count() == 1
 
@@ -87,11 +87,11 @@ class TestPaymentWebhookService:
     @pytest.fixture
     def payment_order(self, session, slot_lock):
         start_time = slot_lock.slot_start
-        return PaymentOrderService().create(session, start_time, "Checkup")
+        return PaymentOrderService(actor=session.provider).create(session, start_time, "Checkup")
 
     @patch("apps.payments.services.webhook_service.finalize_booking_task.delay")
     def test_handle_success(self, mock_delay, payment_order):
-        service = PaymentWebhookService()
+        service = PaymentWebhookService(actor=payment_order.booking.provider)
         service.handle_success(payment_order.mock_order_id, "mock_pay_123", "mock_sig_valid")
 
         payment_order.refresh_from_db()
@@ -100,7 +100,7 @@ class TestPaymentWebhookService:
         mock_delay.assert_called_once_with(payment_order.pk)
 
     def test_handle_failure(self, payment_order, slot_lock):
-        service = PaymentWebhookService()
+        service = PaymentWebhookService(actor=payment_order.booking.provider)
         service.handle_failure(payment_order.mock_order_id, "Declined")
 
         payment_order.refresh_from_db()
@@ -112,7 +112,7 @@ class TestPaymentWebhookService:
         assert not SlotLock.objects.filter(id=slot_lock.id).exists()
 
     def test_handle_success_bad_signature(self, payment_order):
-        service = PaymentWebhookService()
+        service = PaymentWebhookService(actor=payment_order.booking.provider)
         with pytest.raises(ApplicationError) as excinfo:
             service.handle_success(payment_order.mock_order_id, "mock_pay_123", "bad_sig")
         assert excinfo.value.status_code == 403
@@ -120,20 +120,20 @@ class TestPaymentWebhookService:
     def test_handle_success_expired_order(self, payment_order):
         payment_order.expires_at = now() - timedelta(minutes=1)
         payment_order.save()
-        service = PaymentWebhookService()
+        service = PaymentWebhookService(actor=payment_order.booking.provider)
         with pytest.raises(ApplicationError) as excinfo:
             service.handle_success(payment_order.mock_order_id, "mock_pay_123", "mock_sig_valid")
         assert excinfo.value.status_code == 400
 
-    def test_handle_success_unknown_order(self):
-        service = PaymentWebhookService()
+    def test_handle_success_unknown_order(self, user):
+        service = PaymentWebhookService(actor=user)
         with pytest.raises(ApplicationError) as excinfo:
             service.handle_success("unknown_id", "mock_pay_123", "mock_sig_valid")
         assert excinfo.value.status_code == 404
 
     @patch("apps.payments.services.webhook_service.finalize_booking_task.delay")
     def test_handle_success_idempotent(self, mock_delay, payment_order):
-        service = PaymentWebhookService()
+        service = PaymentWebhookService(actor=payment_order.booking.provider)
         service.handle_success(payment_order.mock_order_id, "mock_pay_123", "mock_sig_valid")
         mock_delay.assert_called_once()
 

@@ -1,6 +1,8 @@
 import pytest
-from django.contrib.auth.models import User
+from django.contrib.auth import get_user_model
 from rest_framework.test import APIClient
+
+User = get_user_model()
 
 
 @pytest.fixture(autouse=True)
@@ -20,29 +22,54 @@ def api_client():
 
 @pytest.fixture
 def admin_user(db):
-    return User.objects.create_superuser(
+    user = User.objects.create_superuser(
         username="admin",
         email="admin@example.com",
         password="AdminPassword123!",  # nosec B106
     )
+    user.is_provider = True
+    user.save()
+    return user
 
 
 @pytest.fixture
 def user(db):
-    """Regular (non-admin) Django user — used only for testing admin route protection."""
-    return User.objects.create_user(
+    """Regular provider user."""
+    u = User.objects.create_user(
         username="testuser",
         email="test@example.com",
         password="TestPassword123!",  # nosec B106
         first_name="Test",
         last_name="User",
     )
+    u.is_provider = True
+    u.save()
+    return u
 
 
 @pytest.fixture
 def auth_client(api_client, user):
-    """Authenticated client with regular user JWT — for testing admin-only 403s."""
+    """Authenticated client with provider user JWT."""
     api_client.force_authenticate(user=user)
+    return api_client
+
+
+@pytest.fixture
+def patient_user(db):
+    """Regular (non-provider) Django user."""
+    return User.objects.create_user(
+        username="patientuser",
+        email="patient@example.com",
+        password="TestPassword123!",  # nosec B106
+        first_name="Patient",
+        last_name="User",
+    )
+
+
+@pytest.fixture
+def patient_client(api_client, patient_user):
+    """Authenticated client with non-provider user JWT."""
+    api_client.force_authenticate(user=patient_user)
     return api_client
 
 

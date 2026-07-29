@@ -1,6 +1,7 @@
 import logging
+from typing import Any
 
-from django.contrib.auth.models import User
+from django.contrib.auth import get_user_model
 
 from apps.chatbot.models import ConversationSession
 from common.api.exceptions import ApplicationError
@@ -8,10 +9,12 @@ from common.services.base import BaseService
 
 logger = logging.getLogger(__name__)
 
+User = get_user_model()
+
 
 class ChatSessionService(BaseService):
     @classmethod
-    def start_session(cls, provider_id: int) -> ConversationSession:
+    def start_session(cls, provider_id: Any) -> ConversationSession:
         try:
             provider = User.objects.get(pk=provider_id)
         except User.DoesNotExist as exc:
@@ -26,9 +29,9 @@ class ChatSessionService(BaseService):
         return session
 
     @classmethod
-    def get_session(cls, session_key: str) -> ConversationSession:
+    def get_session(self, session_id: str) -> ConversationSession:
         try:
-            return ConversationSession.objects.get(session_key=session_key)
+            return ConversationSession.objects.get(session_key=session_id)
         except ConversationSession.DoesNotExist as exc:
             raise ApplicationError("Session not found.", status_code=404) from exc
 

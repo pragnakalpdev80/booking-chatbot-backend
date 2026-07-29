@@ -17,15 +17,6 @@ def api_client():
 @pytest.fixture
 def admin_client(user):
     client = APIClient()
-    user.is_staff = True
-    user.save()
-    client.force_authenticate(user=user)
-    return client
-
-
-@pytest.fixture
-def regular_client(user):
-    client = APIClient()
     client.force_authenticate(user=user)
     return client
 
@@ -54,10 +45,10 @@ class TestProviderSettingsView:
         response = admin_client.patch(url, {"timezone": "InvalidZone"}, format="json")
         assert response.status_code == status.HTTP_400_BAD_REQUEST
 
-    def test_get_settings_unauthorized(self, regular_client):
+    def test_get_settings_unauthorized(self, patient_client):
         url = reverse("admin_provider_settings")
-        response = regular_client.get(url)
-        # Should be forbidden because IsAdminUser is required
+        response = patient_client.get(url)
+        # Should be forbidden because IsProviderUser is required
         assert response.status_code == status.HTTP_403_FORBIDDEN
 
 

@@ -1,5 +1,6 @@
 import logging
 from datetime import datetime
+from typing import Any
 
 from django.conf import settings
 from google_auth_oauthlib.flow import Flow
@@ -26,9 +27,9 @@ def _get_flow(state=None) -> Flow:
     )
 
 
-def _get_admin_credential(provider_user) -> GoogleCredential:
+def _get_admin_credential(user_id: Any):
     try:
-        return GoogleCredential.objects.select_related("user").get(user=provider_user)
+        return GoogleCredential.objects.select_related("user").get(user=user_id)
     except GoogleCredential.DoesNotExist:
         raise RuntimeError(
             "This provider has not connected their Google Calendar yet. "

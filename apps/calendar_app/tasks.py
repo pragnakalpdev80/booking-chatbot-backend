@@ -8,6 +8,7 @@ Read operations (events.list, freebusy) are NOT routed through Celery.
 
 import logging
 from datetime import UTC, timedelta
+from typing import Any
 
 from celery import shared_task
 from django.utils.timezone import now
@@ -25,7 +26,7 @@ _RETRY_KWARGS = {
 RETRYABLE_STATUS_CODES = {429, 503, 500}
 
 
-def _get_service(provider_user_id: int):
+def _get_service(provider_user_id: Any):
     """Build an authenticated Google Calendar service using the provider's credential."""
     from .models import GoogleCredential
 
@@ -63,7 +64,7 @@ def task_insert_event(
 
 @shared_task(bind=True, **_RETRY_KWARGS)
 def task_patch_event(
-    self, event_id: str, patch_body: dict, provider_user_id: int, calendar_id: str = "primary"
+    self, event_id: str, patch_body: dict, provider_user_id: str, calendar_id: str = "primary"
 ) -> dict:
     """
     Patch (partial update) an existing event on the doctor's calendar.
@@ -93,7 +94,7 @@ def task_patch_event(
 
 @shared_task(bind=True, **_RETRY_KWARGS)
 def task_cancel_event(
-    self, event_id: str, provider_user_id: int, calendar_id: str = "primary"
+    self, event_id: str, provider_user_id: str, calendar_id: str = "primary"
 ) -> None:
     """
     Delete an event from the doctor's calendar.

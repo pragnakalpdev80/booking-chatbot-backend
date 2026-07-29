@@ -6,13 +6,21 @@ The `accounts` app handles identity, registration, authentication, and profile m
 
 ## Key models (`models.py`)
 
-- `UserProfile` — A One-to-One extension of Django's built-in `User` model.
-  - Stores additional fields such as `phone` and `date_of_birth`.
-  - Created automatically via a `post_save` signal whenever a new `User` is instantiated.
+- ### 1. `UserProfile`
+A `OneToOneField` mapping to Django's built-in `User` model. This model stores:
+- `is_provider` (`BooleanField`): Critical flag determining whether the user is a medical provider. Replaces Django's `is_staff` to secure the admin panel while allowing provider dashboard access.
+- `phone` (`CharField`): Optional contact number.
+- `date_of_birth` (`DateField`): Optional birth date.
+- Created automatically via a `post_save` signal whenever a new `User` is instantiated.
 
 ## Key endpoints (`/api/accounts/`)
 
-- `POST /register/` (`RegisterView`) — Allows a new provider to sign up. Creates the Django `User`. (`AllowAny`)
+- 1. **`POST /api/v1/accounts/register/`**:
+   - Accepts user details.
+   - Creates a Django `User`.
+   - The signal auto-creates the `UserProfile`.
+   - The view sets `profile.is_provider = True` to grant provider access without granting Django Admin access.
+   - The signal also auto-creates default `ProviderSettings`. (`AllowAny`)
 - `POST /login/` (`TokenObtainPairView`) — Standard simplejwt endpoint to exchange username/password for access/refresh JWT tokens. (`AllowAny`)
 - `POST /token/refresh/` (`TokenRefreshView`) — Standard simplejwt endpoint to refresh a JWT. (`AllowAny`)
 - `GET /me/` (`MeView`) — Retrieves the currently authenticated provider's user data and profile. (`IsAuthenticated`)

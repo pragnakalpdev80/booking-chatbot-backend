@@ -80,7 +80,7 @@ class TestMessageModel:
         )
         assert msg.tool_call_id == "call_abc123"
 
-    def test_message_ordering_by_timestamp(self, admin_user):
+    def test_message_ordering_by_created_at(self, admin_user):
         session = ConversationSession.objects.create(provider=admin_user)
         m1 = Message.objects.create(session=session, role=MessageRole.USER, content="First")
         m2 = Message.objects.create(session=session, role=MessageRole.ASSISTANT, content="Second")
