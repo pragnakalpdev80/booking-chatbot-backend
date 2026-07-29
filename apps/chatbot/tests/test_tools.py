@@ -127,6 +127,7 @@ class TestBookAppointmentTool:
         }
         SlotLock.objects.create(
             session_key=session_with_email.session_key,
+            provider=session_with_email.provider,
             slot_start="2026-08-04T10:00:00+05:30",
             slot_end="2026-08-04T10:30:00+05:30",
             expires_at=now() + timedelta(minutes=15),
@@ -145,6 +146,7 @@ class TestBookAppointmentTool:
         mock_service.events().insert().execute.return_value = {"id": "dur_evt", "htmlLink": ""}
         SlotLock.objects.create(
             session_key=session_with_email.session_key,
+            provider=session_with_email.provider,
             slot_start="2026-08-04T09:00:00+05:30",
             slot_end="2026-08-04T09:30:00+05:30",
             expires_at=now() + timedelta(minutes=15),
@@ -359,6 +361,7 @@ class TestLockAndReleaseSlotTools:
     def test_lock_slot_conflict(self, session, mock_service):
         SlotLock.objects.create(
             session_key=str(uuid.uuid4()),
+            provider=session.provider,
             slot_start="2026-08-04T10:00:00+05:30",
             slot_end="2026-08-04T10:30:00+05:30",
             expires_at=now() + timedelta(minutes=15),
@@ -371,6 +374,7 @@ class TestLockAndReleaseSlotTools:
     def test_release_slot_success(self, session):
         SlotLock.objects.create(
             session_key=session.session_key,
+            provider=session.provider,
             slot_start="2026-08-04T10:00:00+05:30",
             slot_end="2026-08-04T10:30:00+05:30",
             expires_at=now() + timedelta(minutes=15),
