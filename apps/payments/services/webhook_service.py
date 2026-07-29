@@ -14,7 +14,7 @@ logger = logging.getLogger(__name__)
 
 class PaymentWebhookService:
     def __init__(self, actor=None, **kwargs):
-        pass
+        pass  # Intentionally empty: setup logic not required yet
 
     def handle_success(self, order_id: str, payment_id: str, signature: str) -> None:
         """Mark order as paid and dispatch Celery task for GCal write (CLAUDE.md §2.5)."""

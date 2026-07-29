@@ -29,7 +29,7 @@ class ChatSessionService(BaseService):
         return session
 
     @classmethod
-    def get_session(self, session_id: str) -> ConversationSession:
+    def get_session(cls, session_id: str) -> ConversationSession:
         try:
             return ConversationSession.objects.get(session_key=session_id)
         except ConversationSession.DoesNotExist as exc:

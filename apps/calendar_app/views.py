@@ -447,13 +447,13 @@ class ProviderListView(APIView):
     def get(self, request):
         from django.contrib.auth import get_user_model
 
-        User = get_user_model()
+        user_model = get_user_model()
 
         from apps.calendar_app.serializers import ProviderListSerializer
 
         # Only return providers that have a connected Google credential
         # and a provider settings record.
-        providers = User.objects.filter(
+        providers = user_model.objects.filter(
             google_credential__isnull=False, provider_settings__isnull=False
         ).select_related("provider_settings")
 

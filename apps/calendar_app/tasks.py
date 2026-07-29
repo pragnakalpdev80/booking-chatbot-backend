@@ -161,7 +161,7 @@ def invalidate_freebusy_cache(provider_id: int, calendar_id: str, target_date: s
     )
 
 
-def _reconcile_single_booking(booking, ProviderSettings) -> None:
+def _reconcile_single_booking(booking, provider_settings_cls) -> None:
     if booking.provider is None:
         logger.warning(
             "reconcile_bookings_with_gcal: booking %s has no provider — skipping.",
@@ -172,7 +172,7 @@ def _reconcile_single_booking(booking, ProviderSettings) -> None:
     assert booking.provider_id is not None, "Booking has no provider_id despite provider check"
     try:
         service = _get_service(booking.provider_id)
-        ps = ProviderSettings.get_for_provider(booking.provider)
+        ps = provider_settings_cls.get_for_provider(booking.provider)
         event = (
             service.events()
             .get(calendarId=ps.calendar_id, eventId=booking.google_event_id)

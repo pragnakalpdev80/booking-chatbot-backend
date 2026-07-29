@@ -832,7 +832,8 @@ def _initiate_payment(session: ConversationSession, start_time: str, reason: str
     start_dt = datetime.fromisoformat(start_time)
 
     try:
-        assert session.provider is not None
+        if session.provider is None:
+            raise ApplicationError("Session provider is missing")
         order = PaymentOrderService(actor=session.provider).create(
             session=session, start_time=start_dt, reason=reason
         )
