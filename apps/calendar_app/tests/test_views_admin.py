@@ -1,4 +1,5 @@
 from unittest.mock import MagicMock, patch
+from urllib.parse import urlparse
 
 import pytest
 from django.urls import reverse
@@ -143,7 +144,8 @@ class TestGoogleOAuthViews:
         url = reverse("calendar_google_login")
         response = admin_client.get(url)
         assert response.status_code == status.HTTP_200_OK
-        assert "accounts.google.com" in response.data["data"]["auth_url"]
+        auth_url = response.data["data"]["auth_url"]
+        assert urlparse(auth_url).hostname == "accounts.google.com"
 
     def test_google_callback_no_code(self, admin_client):
         url = reverse("calendar_oauth2callback")
