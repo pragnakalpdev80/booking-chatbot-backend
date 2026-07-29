@@ -17,6 +17,27 @@ class BreakTimeSerializer(serializers.ModelSerializer):
     def validate(self, data):
         if data["start"] >= data["end"]:
             raise serializers.ValidationError("Start time must be before end time.")
+
+        day_schedules = self.context.get("day_schedules")
+        if day_schedules:
+            day_schedule = day_schedules.get(str(data["weekday"]))
+            if not day_schedule or not day_schedule.get("is_active"):
+                raise serializers.ValidationError("Cannot add break on an inactive day.")
+
+            import datetime
+
+            try:
+                # Assuming format is "HH:MM" or "HH:MM:SS"
+                work_start = datetime.time.fromisoformat(day_schedule["start"])
+                work_end = datetime.time.fromisoformat(day_schedule["end"])
+            except ValueError:
+                raise serializers.ValidationError(
+                    "Invalid working hours format in schedule."
+                ) from None
+
+            if data["start"] < work_start or data["end"] > work_end:
+                raise serializers.ValidationError("Break must be within working hours.")
+
         return data
 
 

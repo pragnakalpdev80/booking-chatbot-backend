@@ -35,6 +35,7 @@ class BreakTime(models.Model):
     end = models.TimeField()
     label = models.CharField(default="Break")
 ```
+- **Validation:** Breaks are strictly validated. They must fall within the working hours defined in `day_schedules`, cannot be added to inactive days, and cannot overlap with each other on the same day.
 
 ### `Holiday`
 Defines specific calendar dates where the provider is completely unavailable.

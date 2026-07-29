@@ -83,12 +83,26 @@ class TestDashboardEndpoints:
         # Should be ordered descending (latest first, i.e., tomorrow > yesterday)
         assert response.data["data"][0]["email"] in ["2@test.com", "3@test.com"]
 
+    def test_get_all_appointments_past_date_rejected(self, auth_client, user, setup_data):
+        url = reverse("dashboard_all_appointments")
+        yesterday_str = (timezone.now() - timedelta(days=1)).strftime("%Y-%m-%d")
+        response = auth_client.get(f"{url}?start_date={yesterday_str}")
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert "cannot be in the past" in response.data["data"]["error"]
+
     def test_get_cancelled_appointments(self, auth_client, user, setup_data):
         url = reverse("dashboard_cancelled_appointments")
         response = auth_client.get(url)
         assert response.status_code == status.HTTP_200_OK
         assert response.data["count"] == 1
         assert response.data["data"][0]["email"] == "3@test.com"
+
+    def test_get_cancelled_appointments_past_date_rejected(self, auth_client, user, setup_data):
+        url = reverse("dashboard_cancelled_appointments")
+        yesterday_str = (timezone.now() - timedelta(days=1)).strftime("%Y-%m-%d")
+        response = auth_client.get(f"{url}?start_date={yesterday_str}")
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert "cannot be in the past" in response.data["data"]["error"]
 
     def test_get_stats(self, auth_client, user, setup_data):
         url = reverse("dashboard_stats")

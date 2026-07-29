@@ -374,7 +374,9 @@ class ProviderBreakTimesView(APIView):
         if error_msg:
             return ApiResponse({"error": error_msg}, status=status.HTTP_400_BAD_REQUEST)
 
-        serializer = BreakTimeSerializer(data=breaks_data, many=True)
+        serializer = BreakTimeSerializer(
+            data=breaks_data, many=True, context={"day_schedules": ps.day_schedules}
+        )
         if serializer.is_valid():
             from django.db import transaction
 

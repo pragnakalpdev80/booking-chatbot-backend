@@ -12,6 +12,28 @@ from .serializers import DashboardBookingSerializer
 logger = logging.getLogger(__name__)
 
 
+def _validate_start_date(start_date_str: str | None):
+    if not start_date_str:
+        return None
+    import datetime
+
+    from rest_framework import status
+
+    try:
+        parsed = datetime.datetime.strptime(start_date_str, "%Y-%m-%d").date()
+        if parsed < datetime.date.today():
+            return ApiResponse(
+                {"error": "start_date cannot be in the past."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+    except ValueError:
+        return ApiResponse(
+            {"error": "Invalid start_date format. Use YYYY-MM-DD."},
+            status=status.HTTP_400_BAD_REQUEST,
+        )
+    return None
+
+
 class DashboardAppointmentsView(APIView):
     """GET /api/v1/dashboard/appointments/"""
 
@@ -23,23 +45,9 @@ class DashboardAppointmentsView(APIView):
         end_date_str = request.query_params.get("end_date")
         email_str = request.query_params.get("email")
 
-        if start_date_str:
-            import datetime
-
-            from rest_framework import status
-
-            try:
-                parsed = datetime.datetime.strptime(start_date_str, "%Y-%m-%d").date()
-                if parsed < datetime.date.today():
-                    return ApiResponse(
-                        {"error": "start_date cannot be in the past."},
-                        status=status.HTTP_400_BAD_REQUEST,
-                    )
-            except ValueError:
-                return ApiResponse(
-                    {"error": "Invalid start_date format. Use YYYY-MM-DD."},
-                    status=status.HTTP_400_BAD_REQUEST,
-                )
+        error_response = _validate_start_date(start_date_str)
+        if error_response:
+            return error_response
 
         appointments = DashboardSelector.get_appointments(
             provider_id, start_date_str, end_date_str, email_str
@@ -58,6 +66,10 @@ class DashboardAllAppointmentsView(APIView):
         start_date_str = request.query_params.get("start_date")
         end_date_str = request.query_params.get("end_date")
         email_str = request.query_params.get("email")
+
+        error_response = _validate_start_date(start_date_str)
+        if error_response:
+            return error_response
 
         qs = DashboardSelector.get_all_appointments(
             provider_id, start_date_str, end_date_str, email_str
@@ -80,6 +92,10 @@ class DashboardCancelledView(APIView):
         start_date_str = request.query_params.get("start_date")
         end_date_str = request.query_params.get("end_date")
         email_str = request.query_params.get("email")
+
+        error_response = _validate_start_date(start_date_str)
+        if error_response:
+            return error_response
 
         qs = DashboardSelector.get_cancelled_appointments(
             provider_id, start_date_str, end_date_str, email_str

@@ -108,6 +108,24 @@ class TestProviderBreakTimesView:
         response = admin_client.put(url, data, format="json")
         assert response.status_code == status.HTTP_400_BAD_REQUEST
 
+    def test_put_break_times_outside_working_hours(self, admin_client, user):
+        ps = ProviderSettings.objects.create(user=user)
+        ps.day_schedules = {"0": {"is_active": True, "start": "09:00", "end": "17:00"}}
+        ps.save()
+        url = reverse("admin_provider_breaks")
+        data = {"breaks": [{"weekday": 0, "start": "08:00", "end": "09:00"}]}
+        response = admin_client.put(url, data, format="json")
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+
+    def test_put_break_times_on_inactive_day(self, admin_client, user):
+        ps = ProviderSettings.objects.create(user=user)
+        ps.day_schedules = {"0": {"is_active": False, "start": "09:00", "end": "17:00"}}
+        ps.save()
+        url = reverse("admin_provider_breaks")
+        data = {"breaks": [{"weekday": 0, "start": "12:00", "end": "13:00"}]}
+        response = admin_client.put(url, data, format="json")
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+
 
 @pytest.mark.django_db
 class TestGoogleOAuthViews:
