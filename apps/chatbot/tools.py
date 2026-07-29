@@ -350,9 +350,11 @@ def _lock_slot(session: ConversationSession, start_time: str) -> str:
 
     try:
         with transaction.atomic():
-            # Guard: refuse to lock if a CONFIRMED booking already exists at this time.
-            # This prevents the LLM from treating a successfully paid slot as free.
+            # Guard: refuse to lock if a CONFIRMED booking already exists at this time
+            # for THIS provider. Per-provider isolation: a booking under provider A must
+            # not block provider B.
             if Booking.objects.filter(
+                provider=session.provider,
                 start_time=start_dt,
                 status=BookingStatus.CONFIRMED,
             ).exists():
@@ -367,16 +369,20 @@ def _lock_slot(session: ConversationSession, start_time: str) -> str:
             # multiple slots)
             SlotLock.objects.filter(session_key=session.session_key, is_confirmed=False).delete()
 
-            # Delete any expired, unconfirmed locks for this specific slot to satisfy the
-            # UniqueConstraint
+            # Delete any expired, unconfirmed locks for this specific slot+provider to satisfy
+            # the UniqueConstraint. Scoped to provider to avoid touching other providers' locks.
             SlotLock.objects.filter(
-                slot_start=start_dt, expires_at__lte=now(), is_confirmed=False
+                provider=session.provider,
+                slot_start=start_dt,
+                expires_at__lte=now(),
+                is_confirmed=False,
             ).delete()
 
-            # Try to acquire a lock, ensuring no one else holds an active lock
+            # Try to acquire a lock, ensuring no one else holds an active lock for THIS
+            # provider+slot combination.
             existing = (
                 SlotLock.objects.select_for_update(nowait=True)
-                .filter(slot_start=start_dt, is_confirmed=False)
+                .filter(provider=session.provider, slot_start=start_dt, is_confirmed=False)
                 .first()
             )
 

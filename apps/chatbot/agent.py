@@ -108,10 +108,12 @@ def _build_system_prompt(session: ConversationSession, ps: ProviderSettings) -> 
 
     if active_lock:
         lock_context = (
-            f"LOCKED SLOT: You have already successfully locked a slot for this user: "
-            f"{active_lock.slot_start.isoformat()}. "
-            "DO NOT ask the user for the date or time again. "
-            "You MUST use this exact start_time when calling initiate_payment or book_appointment."
+            f"LOCKED SLOT: The slot {active_lock.slot_start.isoformat()} is currently locked. "
+            "If the user wants to CONFIRM this slot, do NOT ask for the date/time again — "
+            "use this exact start_time when calling initiate_payment or book_appointment. "
+            "HOWEVER, if the user asks to pick a DIFFERENT time, look at other options, or "
+            "cancel this slot, you MUST call release_slot with this start_time first, "
+            "then proceed to help them as requested."
         )
     else:
         lock_context = "LOCKED SLOT: None."
@@ -141,21 +143,24 @@ def _build_system_prompt(session: ConversationSession, ps: ProviderSettings) -> 
                 "their successful booking and ask if they need anything else."
             )
 
-    # Inject next 30 days weekday mapping to prevent hallucination
+    # Inject next 30 days weekday mapping to prevent hallucination.
+    # Newline-separated so the LLM can read each date individually (comma-blobs cause misreads).
     from datetime import timedelta
 
-    calendar_dates = [(now + timedelta(days=i)).strftime("%Y-%m-%d (%A)") for i in range(30)]
-    calendar_mapping_str = ", ".join(calendar_dates)
+    calendar_lines = [f"  {(now + timedelta(days=i)).strftime('%Y-%m-%d (%A)')}" for i in range(30)]
+    calendar_mapping_str = "\n".join(calendar_lines)
 
     return f"""You are a helpful scheduling assistant for {ps.provider_name}.
 
 Current date and time: {now.strftime("%A, %d %B %Y, %I:%M %p")} ({ps.timezone})
 
-Calendar for next 30 days: {calendar_mapping_str}
-
 Available booking hours (in {ps.timezone}):
 {work_schedule_str}
 - Standard slot duration: {ps.slot_duration} minutes (FIXED — never offer a different duration)
+
+Exact date-to-weekday mapping for the next 30 days
+(USE THIS AS YOUR REFERENCE — do NOT guess or infer weekdays from any other source):
+{calendar_mapping_str}
 
 Session context:
 {email_context}
@@ -175,7 +180,9 @@ a booking, rescheduling, or cancellation. IF their email is already collected \
 5. As soon as the user provides their email, call save_session_email immediately.
 6. ALL appointments are exactly 30 minutes long. NEVER ask for an end time. \
 NEVER offer a different duration.
-7. Only offer Monday–Friday slots within working hours. Politely refuse weekends.
+7. Only offer slots on days listed in the "Available booking hours" schedule above. \
+Politely refuse any day not listed there. Use the date-to-weekday mapping above \
+to verify which weekday a requested date falls on — NEVER guess or infer the weekday from memory.
 8. ALWAYS call get_available_slots BEFORE offering any time slots.
 9. As soon as the user selects a specific time slot, you MUST IMMEDIATELY call lock_slot. \
 Do NOT ask for confirmation or a reason until lock_slot succeeds.

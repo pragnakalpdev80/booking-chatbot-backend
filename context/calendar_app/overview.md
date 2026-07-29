@@ -35,4 +35,5 @@ The `calendar_app` operates as the primary integration layer between the interna
 
 - **Asynchronous External Writes**: All write operations to Google Calendar are routed through Celery tasks (`insert_google_calendar_event`, `patch_...`, `delete_...`) to ensure fast HTTP responses.
 - **Availability Enforcement**: Before booking, the `AvailabilitySelector` rigorously checks local slot-locks, local holidays/breaks, and live Google `freebusy` data.
+- **Provider-Scoped Slot Locking**: All `SlotLock` and `Booking` guard queries in `_lock_slot()` are scoped to `provider=session.provider`. A lock or confirmed booking under provider A does NOT block provider B from locking the same time slot — each provider's calendar is fully independent.
 - **Dependency Isolation**: `SlotLock` uses a soft `session_key` UUID instead of a direct foreign key to `ConversationSession` (which lives in the `chatbot` app) to prevent circular module dependencies.
