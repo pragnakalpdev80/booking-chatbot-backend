@@ -375,24 +375,36 @@ def _lock_slot(session: ConversationSession, start_time: str) -> str:
                     }
                 )
 
-            # Release any existing active locks held by this session (so they don't hold
-            # multiple slots)
-            SlotLock.objects.filter(session_key=session.session_key, is_confirmed=False).delete()
+            # Release any existing active (non-expired) locks held by this session
+            # (so they don't hold multiple slots). Soft-expired locks are already
+            # is_expired=True and excluded from the UniqueConstraint, so leave them
+            # intact for the agent's context query.
+            SlotLock.objects.filter(
+                session_key=session.session_key,
+                is_confirmed=False,
+                is_expired=False,
+            ).delete()
 
-            # Delete any expired, unconfirmed locks for this specific slot+provider to satisfy
-            # the UniqueConstraint. Scoped to provider to avoid touching other providers' locks.
+            # Delete any soft-expired locks for this specific slot+provider to satisfy
+            # the UniqueConstraint (is_expired=True rows are excluded from the constraint
+            # but we still clean them up now to avoid duplicate rows after a re-lock).
+            # Scoped to provider to avoid touching other providers' locks.
             SlotLock.objects.filter(
                 provider=session.provider,
                 slot_start=start_dt,
-                expires_at__lte=now(),
-                is_confirmed=False,
+                is_expired=True,
             ).delete()
 
             # Try to acquire a lock, ensuring no one else holds an active lock for THIS
             # provider+slot combination.
             existing = (
                 SlotLock.objects.select_for_update(nowait=True)
-                .filter(provider=session.provider, slot_start=start_dt, is_confirmed=False)
+                .filter(
+                    provider=session.provider,
+                    slot_start=start_dt,
+                    is_confirmed=False,
+                    is_expired=False,
+                )
                 .first()
             )
 

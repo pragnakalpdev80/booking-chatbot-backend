@@ -316,6 +316,15 @@ class SlotLock(UUIDModel):
         db_index=True,
         help_text="True if the user successfully booked this slot. The lock is then ignored.",
     )
+    is_expired = models.BooleanField(
+        default=False,
+        db_index=True,
+        help_text=(
+            "True if the 15-minute reservation window timed out without being confirmed. "
+            "Soft-expiry keeps the row so the agent can report the expiry to the user "
+            "even after the Celery cleanup task runs."
+        ),
+    )
 
     class Meta:
         verbose_name = "Slot Lock"
@@ -324,7 +333,7 @@ class SlotLock(UUIDModel):
         constraints = [
             models.UniqueConstraint(
                 fields=["slot_start", "provider"],
-                condition=models.Q(is_confirmed=False),
+                condition=models.Q(is_confirmed=False, is_expired=False),
                 name="unique_active_slot_lock_per_provider",
             )
         ]

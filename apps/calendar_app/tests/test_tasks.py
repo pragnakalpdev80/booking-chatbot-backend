@@ -116,24 +116,34 @@ class TestCalendarTasks:
             task_cancel_event("existing_id", booking.provider_id)
 
     def test_cleanup_expired_locks(self, user):
-        # Create expired and active locks
-        SlotLock.objects.create(
+        # Create an expired lock and an active lock on different slots to avoid
+        # the unique-constraint collision between the two unconfirmed rows.
+        expired_lock = SlotLock.objects.create(
             provider=user,
             session_key=str(uuid.uuid4()),
-            slot_start=now(),
-            slot_end=now() + timedelta(minutes=30),
+            slot_start=now() + timedelta(hours=1),
+            slot_end=now() + timedelta(hours=1, minutes=30),
             expires_at=now() - timedelta(minutes=5),
             is_confirmed=False,
         )
         active_lock = SlotLock.objects.create(
             provider=user,
             session_key=str(uuid.uuid4()),
-            slot_start=now(),
-            slot_end=now() + timedelta(minutes=30),
+            slot_start=now() + timedelta(hours=2),
+            slot_end=now() + timedelta(hours=2, minutes=30),
             expires_at=now() + timedelta(minutes=15),
             is_confirmed=False,
         )
 
         cleanup_expired_locks()
-        assert SlotLock.objects.count() == 1
-        assert SlotLock.objects.first().id == active_lock.id
+
+        # Both rows must still exist — no hard-delete
+        assert SlotLock.objects.count() == 2
+
+        expired_lock.refresh_from_db()
+        active_lock.refresh_from_db()
+
+        # Expired lock is now soft-expired
+        assert expired_lock.is_expired is True
+        # Active lock is untouched
+        assert active_lock.is_expired is False

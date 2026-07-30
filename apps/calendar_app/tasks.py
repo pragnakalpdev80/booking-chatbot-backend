@@ -127,15 +127,24 @@ def task_cancel_event(
 @shared_task
 def cleanup_expired_locks() -> None:
     """
-    Delete expired, unconfirmed SlotLock records.
-    Runs periodically via Celery Beat.
+    Soft-expire unconfirmed SlotLock records whose reservation window has elapsed.
+
+    Instead of hard-deleting rows, we set is_expired=True so that the agent's
+    system prompt can still detect the expired lock and correctly inform the user,
+    even if they resume the conversation long after the 15-minute window closed.
+
+    Runs periodically via Celery Beat (every 5 minutes).
     """
     from .models import SlotLock
 
-    deleted_count, _ = SlotLock.objects.filter(expires_at__lte=now(), is_confirmed=False).delete()
+    updated_count = SlotLock.objects.filter(
+        expires_at__lte=now(),
+        is_confirmed=False,
+        is_expired=False,
+    ).update(is_expired=True)
 
-    if deleted_count > 0:
-        logger.info("cleanup_expired_locks: deleted %d expired lock(s).", deleted_count)
+    if updated_count > 0:
+        logger.info("cleanup_expired_locks: soft-expired %d lock(s).", updated_count)
 
 
 def invalidate_freebusy_cache(provider_id: int, calendar_id: str, target_date: str) -> None:

@@ -110,7 +110,7 @@ def _build_system_prompt(session: ConversationSession, ps: ProviderSettings) -> 
         .first()
     )
 
-    if latest_lock and latest_lock.expires_at > now:
+    if latest_lock and not latest_lock.is_expired and latest_lock.expires_at > now:
         lock_context = (
             f"LOCKED SLOT: The slot {latest_lock.slot_start.isoformat()} is currently locked. "
             "If the user wants to CONFIRM this slot, do NOT ask for the date/time again — "
@@ -119,19 +119,16 @@ def _build_system_prompt(session: ConversationSession, ps: ProviderSettings) -> 
             "cancel this slot, you MUST call release_slot with this start_time first, "
             "then proceed to help them as requested."
         )
-    elif (
-        latest_lock
-        and latest_lock.expires_at <= now
-        and latest_lock.expires_at >= now - timedelta(minutes=30)
-    ):
-        # Expired within the last 30 min — contextually relevant to this session
+    elif latest_lock and (latest_lock.is_expired or latest_lock.expires_at <= now):
+        # Expired lock — is_expired flag set by Celery, or window elapsed this turn
         lock_context = (
             f"LOCKED SLOT: EXPIRED. The reservation for "
             f"{latest_lock.slot_start.isoformat()} timed out. "
             "CRITICAL: The slot is no longer reserved. "
+            "DO NOT call lock_slot or book_appointment automatically. "
             "DO NOT ask for their email or continue the booking process. "
             "You MUST IMMEDIATELY inform the user their 15-minute reservation has expired "
-            "and ask if they would like to re-lock the slot."
+            "and ask if they would like to choose a new slot."
         )
     else:
         lock_context = "LOCKED SLOT: None."
