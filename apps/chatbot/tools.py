@@ -680,12 +680,11 @@ def _book_appointment(session: ConversationSession, start_time: str, reason: str
                 service.events().delete(
                     calendarId=ps.calendar_id, eventId=google_event_id
                 ).execute()
-            except Exception as del_e:
-                logger.error(
+            except Exception:
+                logger.exception(
                     "DB-GCAL DESYNC: Failed to delete orphaned "
-                    "Google Calendar event %s after DB failure: %s",
+                    "Google Calendar event %s after DB failure",
                     google_event_id,
-                    del_e,
                 )
         lock.delete()
         return json.dumps(
@@ -763,12 +762,11 @@ def _reschedule_appointment(
         booking.end_time = new_end
         booking.status = BookingStatus.RESCHEDULED
         booking.save(update_fields=["start_time", "end_time", "status", "updated_at"])
-    except Exception as e:
-        logger.error(
+    except Exception:
+        logger.exception(
             "DB-GCAL DESYNC: Failed to save booking update in DB for event %s "
-            "after successful GCal patch. DB and GCal are out of sync: %s",
+            "after successful GCal patch. DB and GCal are out of sync",
             event_id,
-            e,
         )
         return json.dumps(
             {"error": "Failed to update booking in database. Please contact support."}
