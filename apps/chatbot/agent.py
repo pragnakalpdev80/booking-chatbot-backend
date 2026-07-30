@@ -1,21 +1,3 @@
-# chatbot/agent.py
-"""
-Anonymous Groq agentic loop.
-
-Implements the tool-calling cycle:
-  Anonymous message → Load rolling context → Call Groq → Tool call? → Execute → Feed back → Response
-
-Key behaviours:
-- Uses openai/gpt-oss-120b (or GROQ_MODEL from settings)
-- Rolling context: last N=10 messages
-- Confirmation gate: system prompt instructs LLM to always confirm before write operations
-- Email collection gate: LLM must collect email before any booking operation
-- Provider name, working hours, and current datetime are injected dynamically
-- No user authentication — sessions identified by UUID session_key
-- Groq API errors are caught and returned as user-friendly strings (no 500s)
-- Tool execution errors are caught and fed back to the LLM for graceful recovery
-"""
-
 import json
 import logging
 from datetime import datetime, timedelta
@@ -25,7 +7,7 @@ from zoneinfo import ZoneInfo
 from django.conf import settings
 from groq import Groq
 
-from apps.calendar_app.models import ProviderSettings, SlotLock
+from apps.calendar_app.models import ProviderSettings
 from common.api.exceptions import ApplicationError
 
 from .models import ConversationSession, Message, MessageRole
@@ -54,10 +36,7 @@ def _build_greeting_message(provider_name: str) -> str:
     )
 
 
-def _build_system_prompt(session: ConversationSession, ps: ProviderSettings) -> str:
-    """Build the dynamic system prompt injecting provider and session context."""
-    tz = ZoneInfo(ps.timezone)
-    now = datetime.now(tz=tz)
+def _get_schedule_str(ps: ProviderSettings) -> str:
     work_day_names = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"]
     schedule_lines = []
     for d_idx, day_name in enumerate(work_day_names):
@@ -66,7 +45,6 @@ def _build_system_prompt(session: ConversationSession, ps: ProviderSettings) -> 
             start = day_info.get("start", "09:00")
             end = day_info.get("end", "17:00")
             try:
-                # Convert 24h string to 12h AM/PM for LLM readability
                 start_obj = datetime.strptime(start, "%H:%M")
                 end_obj = datetime.strptime(end, "%H:%M")
                 schedule_lines.append(
@@ -76,9 +54,80 @@ def _build_system_prompt(session: ConversationSession, ps: ProviderSettings) -> 
             except ValueError:
                 schedule_lines.append(f"  - {day_name}: {start} – {end}")
 
-    work_schedule_str = (
-        "\n".join(schedule_lines) if schedule_lines else "  - No available working days."
+    return "\n".join(schedule_lines) if schedule_lines else "  - No available working days."
+
+
+def _get_lock_context(session: ConversationSession, now: datetime) -> str:
+    from apps.calendar_app.models import SlotLock
+
+    latest_lock = (
+        SlotLock.objects.filter(
+            session_key=session.session_key,
+            is_confirmed=False,
+            provider=session.provider,
+        )
+        .order_by("-created_at")
+        .first()
     )
+
+    if latest_lock and not latest_lock.is_expired and latest_lock.expires_at > now:
+        return (
+            f"LOCKED SLOT: The slot {latest_lock.slot_start.isoformat()} is currently locked. "
+            "If the user wants to CONFIRM this slot, do NOT ask for the date/time again — "
+            "use this exact start_time when calling initiate_payment or book_appointment. "
+            "HOWEVER, if the user asks to pick a DIFFERENT time, look at other options, or "
+            "cancel this slot, you MUST call release_slot with this start_time first, "
+            "then proceed to help them as requested."
+        )
+    elif latest_lock and (latest_lock.is_expired or latest_lock.expires_at <= now):
+        return (
+            f"LOCKED SLOT: EXPIRED. The reservation for "
+            f"{latest_lock.slot_start.isoformat()} timed out. "
+            "CRITICAL: The slot is no longer reserved. "
+            "DO NOT call lock_slot or book_appointment automatically. "
+            "DO NOT ask for their email or continue the booking process. "
+            "You MUST IMMEDIATELY inform the user their 15-minute reservation has expired "
+            "and ask if they would like to choose a new slot."
+        )
+    return "LOCKED SLOT: None."
+
+
+def _get_recent_booking_context(session: ConversationSession, now: datetime) -> str:
+    if not session.user_email:
+        return ""
+
+    from apps.calendar_app.models import Booking, BookingStatus
+
+    recent_booking = (
+        Booking.objects.filter(
+            email=session.user_email,
+            provider=session.provider,
+            status=BookingStatus.CONFIRMED,
+            created_at__gte=now - timedelta(minutes=30),
+        )
+        .order_by("-created_at")
+        .first()
+    )
+    if recent_booking:
+        return (
+            f"\nRECENTLY CONFIRMED BOOKING: A booking for "
+            f"{recent_booking.start_time.isoformat()} "
+            "was successfully confirmed and paid for just now. "
+            "If the user mentions completing their payment, "
+            "DO NOT ask them to book a slot again. Simply acknowledge "
+            "their successful booking and ask if they need anything else."
+        )
+    return ""
+
+
+def _build_system_prompt(session: ConversationSession, ps: ProviderSettings) -> str:
+    """Build the dynamic system prompt injecting provider and session context."""
+    tz = ZoneInfo(ps.timezone)
+    now = datetime.now(tz=tz)
+
+    work_schedule_str = _get_schedule_str(ps)
+    lock_context = _get_lock_context(session, now)
+    recent_booking_context = _get_recent_booking_context(session, now)
 
     email_context = (
         f"The user's email for this session is ALREADY COLLECTED: {session.user_email}. "
@@ -96,66 +145,6 @@ def _build_system_prompt(session: ConversationSession, ps: ProviderSettings) -> 
         payment_instructions = (
             "**PAYMENT IS NOT REQUIRED.** After locking a slot, you MUST call book_appointment."
         )
-
-    # Single query covering both active and recently-expired locks
-    # (mutually exclusive by construction).
-    # Avoids two separate DB round-trips per iteration.
-    latest_lock = (
-        SlotLock.objects.filter(
-            session_key=session.session_key,
-            is_confirmed=False,
-            provider=session.provider,
-        )
-        .order_by("-created_at")
-        .first()
-    )
-
-    if latest_lock and not latest_lock.is_expired and latest_lock.expires_at > now:
-        lock_context = (
-            f"LOCKED SLOT: The slot {latest_lock.slot_start.isoformat()} is currently locked. "
-            "If the user wants to CONFIRM this slot, do NOT ask for the date/time again — "
-            "use this exact start_time when calling initiate_payment or book_appointment. "
-            "HOWEVER, if the user asks to pick a DIFFERENT time, look at other options, or "
-            "cancel this slot, you MUST call release_slot with this start_time first, "
-            "then proceed to help them as requested."
-        )
-    elif latest_lock and (latest_lock.is_expired or latest_lock.expires_at <= now):
-        # Expired lock — is_expired flag set by Celery, or window elapsed this turn
-        lock_context = (
-            f"LOCKED SLOT: EXPIRED. The reservation for "
-            f"{latest_lock.slot_start.isoformat()} timed out. "
-            "CRITICAL: The slot is no longer reserved. "
-            "DO NOT call lock_slot or book_appointment automatically. "
-            "DO NOT ask for their email or continue the booking process. "
-            "You MUST IMMEDIATELY inform the user their 15-minute reservation has expired "
-            "and ask if they would like to choose a new slot."
-        )
-    else:
-        lock_context = "LOCKED SLOT: None."
-
-    recent_booking_context = ""
-    if session.user_email:
-        from apps.calendar_app.models import Booking, BookingStatus
-
-        recent_booking = (
-            Booking.objects.filter(
-                email=session.user_email,
-                provider=session.provider,
-                status=BookingStatus.CONFIRMED,
-                created_at__gte=now - timedelta(minutes=30),
-            )
-            .order_by("-created_at")
-            .first()
-        )
-        if recent_booking:
-            recent_booking_context = (
-                f"\nRECENTLY CONFIRMED BOOKING: A booking for "
-                f"{recent_booking.start_time.isoformat()} "
-                "was successfully confirmed and paid for just now. "
-                "If the user mentions completing their payment, "
-                "DO NOT ask them to book a slot again. Simply acknowledge "
-                "their successful booking and ask if they need anything else."
-            )
 
     # Inject next 30 days weekday mapping to prevent hallucination.
     # Newline-separated so the LLM can read each date individually (comma-blobs cause misreads).
@@ -253,6 +242,78 @@ def _build_assistant_tool_call_message(assistant_message: Any) -> dict:
     }
 
 
+def _handle_single_tool_call(
+    tc: Any,
+    session: ConversationSession,
+    groq_messages: list[dict[str, Any]],
+    pending_tool_calls_for_db: list[dict[str, Any]],
+) -> bool:
+    tool_name = tc.function.name
+    try:
+        tool_args = json.loads(tc.function.arguments)
+    except json.JSONDecodeError:
+        logger.warning(
+            "JSONDecodeError parsing args for tool '%s' session=%s raw=%r",
+            tool_name,
+            session.session_key,
+            tc.function.arguments,
+        )
+        # Feed a descriptive error back so the LLM can self-correct its JSON
+        error_result = json.dumps(
+            {"error": "invalid_arguments — the JSON provided was malformed. Please retry."}
+        )
+        groq_messages.append(
+            {
+                "role": "tool",
+                "name": tool_name,
+                "content": error_result,
+                "tool_call_id": tc.id,
+            }
+        )
+        pending_tool_calls_for_db.append({"tool_call_id": tc.id, "result": error_result})
+        return False
+
+    logger.info("Dispatching tool '%s' for session=%s", tool_name, session.session_key)
+
+    try:
+        tool_result = execute_tool(tool_name, tool_args, session)
+    except Exception:  # noqa: BLE001
+        logger.exception(
+            "Tool '%s' raised unhandled exception for session=%s",
+            tool_name,
+            session.session_key,
+        )
+        tool_result = json.dumps(
+            {
+                "error": (
+                    "database_error_occurred — an internal error prevented this action. "
+                    "Please apologise to the user and ask them to try again."
+                )
+            }
+        )
+
+    groq_messages.append(
+        {
+            "role": "tool",
+            "name": tool_name,
+            "content": tool_result,
+            "tool_call_id": tc.id,
+        }
+    )
+    pending_tool_calls_for_db.append({"tool_call_id": tc.id, "result": tool_result})
+
+    if tool_name in ("initiate_payment", "book_appointment"):
+        try:
+            parsed = json.loads(tool_result)
+            if "error" not in parsed:
+                return True
+        except json.JSONDecodeError:
+            if '"error"' not in tool_result:
+                return True
+
+    return False
+
+
 def _dispatch_tool_calls(
     assistant_message: Any,
     session: ConversationSession,
@@ -264,70 +325,8 @@ def _dispatch_tool_calls(
     """
     terminal_action_success = False
     for tc in assistant_message.tool_calls:
-        tool_name = tc.function.name
-        try:
-            tool_args = json.loads(tc.function.arguments)
-        except json.JSONDecodeError:
-            logger.warning(
-                "JSONDecodeError parsing args for tool '%s' session=%s raw=%r",
-                tool_name,
-                session.session_key,
-                tc.function.arguments,
-            )
-            # Feed a descriptive error back so the LLM can self-correct its JSON
-            error_result = json.dumps(
-                {"error": "invalid_arguments — the JSON provided was malformed. Please retry."}
-            )
-            groq_messages.append(
-                {
-                    "role": "tool",
-                    "name": tool_name,
-                    "content": error_result,
-                    "tool_call_id": tc.id,
-                }
-            )
-            pending_tool_calls_for_db.append({"tool_call_id": tc.id, "result": error_result})
-            continue
-
-        logger.info("Dispatching tool '%s' for session=%s", tool_name, session.session_key)
-
-        try:
-            tool_result = execute_tool(tool_name, tool_args, session)
-        except Exception as exc:  # noqa: BLE001
-            logger.exception(
-                "Tool '%s' raised unhandled exception for session=%s: %s",
-                tool_name,
-                session.session_key,
-                exc,
-            )
-            tool_result = json.dumps(
-                {
-                    "error": (
-                        "database_error_occurred — an internal error prevented this action. "
-                        "Please apologise to the user and ask them to try again."
-                    )
-                }
-            )
-
-        groq_messages.append(
-            {
-                "role": "tool",
-                "name": tool_name,
-                "content": tool_result,
-                "tool_call_id": tc.id,
-            }
-        )
-        pending_tool_calls_for_db.append({"tool_call_id": tc.id, "result": tool_result})
-
-        if tool_name in ("initiate_payment", "book_appointment"):
-            try:
-                parsed = json.loads(tool_result)
-                if "error" not in parsed:
-                    terminal_action_success = True
-            except json.JSONDecodeError:
-                if '"error"' not in tool_result:
-                    terminal_action_success = True
-
+        if _handle_single_tool_call(tc, session, groq_messages, pending_tool_calls_for_db):
+            terminal_action_success = True
     return terminal_action_success
 
 
