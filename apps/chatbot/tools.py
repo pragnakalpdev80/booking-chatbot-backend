@@ -821,7 +821,7 @@ def _cancel_appointment(session: ConversationSession, event_id: str) -> str:
         )
         booking.save(update_fields=["status", "updated_at"])
     except Exception as e:
-        logger.error(
+        logger.exception(
             "DB-GCAL DESYNC: Failed to save booking cancellation in DB for event %s "
             "after successful GCal deletion: %s",
             event_id,
