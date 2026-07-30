@@ -13,11 +13,12 @@ Six tools are available:
 
 import json
 import logging
+import re
 from datetime import datetime, timedelta
 from typing import Any
 from zoneinfo import ZoneInfo
 
-from django.db import OperationalError, transaction
+from django.db import IntegrityError, OperationalError, transaction
 from django.utils.timezone import now
 from googleapiclient.errors import HttpError
 
@@ -284,7 +285,7 @@ def execute_tool(tool_name: str, tool_args: dict, session: ConversationSession) 
             return json.dumps({"error": f"Unknown tool: {tool_name}"})
     except Exception as exc:  # noqa: BLE001
         logger.exception("Tool %s raised exception: %s", tool_name, exc)
-        return json.dumps({"error": str(exc)})
+        return json.dumps({"error": "An internal error occurred. Please try again."})
 
 
 # ─── Individual tool implementations ─────────────────────────────────────────
@@ -315,8 +316,17 @@ def _build_no_slots_message(end_of_day: datetime, now: datetime) -> str:
 
 def _save_session_email(session: ConversationSession, email: str) -> str:
     """Persist the provided email to the session row immediately."""
+    import re
+
     logger.debug("Tool: save_session_email — session %s, email %s", session.session_key, email)
-    session.user_email = email.strip().lower()
+
+    email_clean = email.strip().lower()
+    if not re.match(r"[^@]+@[^@]+\.[^@]+", email_clean):
+        return json.dumps(
+            {"error": "invalid_format — please ask the user for a valid email address."}
+        )
+
+    session.user_email = email_clean
     session.save(update_fields=["user_email", "updated_at"])
     return json.dumps({"status": "email_saved", "email": session.user_email})
 
@@ -402,9 +412,9 @@ def _lock_slot(session: ConversationSession, start_time: str) -> str:
                 expires_at=now() + timedelta(minutes=15),
             )
 
-    except OperationalError:
+    except (OperationalError, IntegrityError):
         # DB row lock could not be acquired because another transaction is currently
-        # touching this slot's locks
+        # touching this slot's locks, OR a concurrent thread inserted the lock first.
         return json.dumps(
             {
                 "error": "This slot is currently being booked by someone else. "
@@ -432,7 +442,10 @@ def _release_slot(session: ConversationSession, start_time: str) -> str:
         return json.dumps({"error": f"Invalid start_time format: {start_time}."})
 
     deleted, _ = SlotLock.objects.filter(
-        session_key=session.session_key, slot_start=start_dt, is_confirmed=False
+        session_key=session.session_key,
+        slot_start=start_dt,
+        is_confirmed=False,
+        provider=session.provider,
     ).delete()
 
     if deleted:
@@ -534,7 +547,10 @@ def _get_available_slots(session: ConversationSession, date: str) -> str:
 
     active_locked_starts = set(
         SlotLock.objects.filter(
-            slot_start__date=query_date, expires_at__gt=now(), is_confirmed=False
+            slot_start__date=query_date,
+            expires_at__gt=now(),
+            is_confirmed=False,
+            provider=session.provider,
         )
         .exclude(session_key=session.session_key)
         .values_list("slot_start", flat=True)
@@ -574,8 +590,8 @@ def _book_appointment(session: ConversationSession, start_time: str, reason: str
         return json.dumps({"error": _EMAIL_NOT_COLLECTED_MSG})
 
     assert session.provider is not None
-    _ps = ProviderSettings.get_for_provider(session.provider)
-    if _ps.payment_required:
+    ps = ProviderSettings.get_for_provider(session.provider)
+    if ps.payment_required:
         return json.dumps(
             {
                 "error": "This provider requires payment before confirming. "
@@ -599,11 +615,10 @@ def _book_appointment(session: ConversationSession, start_time: str, reason: str
     if not lock:
         return json.dumps(
             {
-                "error": "EXPIRED_LOCK: The 15-minute reservation for this slot has EXPIRED. "
-                "CRITICAL INSTRUCTION: Do NOT call lock_slot again automatically. "
-                "You MUST inform the user that their 15-minute reservation "
-                "expired, and ask them if they would like to select a new time or check if "
-                "this time is still available."
+                "error": "EXPIRED_LOCK: The 15-minute reservation for this slot has EXPIRED "
+                "and the slot is no longer held. Inform the user their reservation timed out. "
+                "Ask if they still want this slot and, if so, call lock_slot again to "
+                "re-secure it before proceeding to confirm."
             }
         )
 
@@ -612,8 +627,6 @@ def _book_appointment(session: ConversationSession, start_time: str, reason: str
 
     assert session.provider is not None
     service = get_gcal_service(session.provider)
-    assert session.provider is not None
-    ps = ProviderSettings.get_for_provider(session.provider)
     if not check_freebusy(service, start_dt, end_dt, ps.calendar_id):
         lock.delete()
         return json.dumps({"error": "The slot is no longer available. Please pick another time."})
@@ -636,6 +649,7 @@ def _book_appointment(session: ConversationSession, start_time: str, reason: str
         with transaction.atomic():
             Booking.objects.create(
                 email=email,
+                provider=session.provider,
                 google_event_id=google_event_id,
                 start_time=start_dt,
                 end_time=end_dt,
@@ -648,6 +662,19 @@ def _book_appointment(session: ConversationSession, start_time: str, reason: str
 
     except Exception as e:
         logger.exception("Failed to book appointment or create record: %s", e)
+        # Attempt to clean up orphaned Google Calendar event to prevent permanent slot blocking
+        if "google_event_id" in locals():
+            try:
+                service.events().delete(
+                    calendarId=ps.calendar_id, eventId=google_event_id
+                ).execute()
+            except Exception as del_e:
+                logger.error(
+                    "DB-GCAL DESYNC: Failed to delete orphaned "
+                    "Google Calendar event %s after DB failure: %s",
+                    google_event_id,
+                    del_e,
+                )
         lock.delete()
         return json.dumps(
             {"error": "Failed to create booking on Google Calendar. Please try again."}
@@ -680,7 +707,9 @@ def _reschedule_appointment(
         return json.dumps({"error": _EMAIL_NOT_COLLECTED_MSG})
 
     try:
-        booking = Booking.objects.get(google_event_id=event_id, email=email)
+        booking = Booking.objects.get(
+            google_event_id=event_id, email=email, provider=session.provider
+        )
     except Booking.DoesNotExist:
         return json.dumps(
             {"error": f"No booking found with event ID {event_id} for email {email}."}
@@ -695,7 +724,6 @@ def _reschedule_appointment(
 
     assert session.provider is not None
     service = get_gcal_service(session.provider)
-    assert session.provider is not None
     ps = ProviderSettings.get_for_provider(session.provider)
     if not check_freebusy(service, new_start, new_end, ps.calendar_id):
         return json.dumps({"error": "The new slot is not available. Please choose another time."})
@@ -705,17 +733,34 @@ def _reschedule_appointment(
         "end": {"dateTime": new_end.isoformat(), "timeZone": ps.timezone},
     }
 
-    updated_event = (
-        service.events()
-        .patch(calendarId=ps.calendar_id, eventId=event_id, body=patch_body)
-        .execute()
-    )
+    try:
+        updated_event = (
+            service.events()
+            .patch(calendarId=ps.calendar_id, eventId=event_id, body=patch_body)
+            .execute()
+        )
+    except HttpError as exc:
+        logger.warning("Calendar HttpError on reschedule event=%s: %s", event_id, exc)
+        return json.dumps(
+            {"error": "Unable to update the calendar for this appointment. Please try again."}
+        )
     logger.debug("Google API patch event result: %s", json.dumps(updated_event))
 
-    booking.start_time = new_start
-    booking.end_time = new_end
-    booking.status = BookingStatus.RESCHEDULED
-    booking.save(update_fields=["start_time", "end_time", "status", "updated_at"])
+    try:
+        booking.start_time = new_start
+        booking.end_time = new_end
+        booking.status = BookingStatus.RESCHEDULED
+        booking.save(update_fields=["start_time", "end_time", "status", "updated_at"])
+    except Exception as e:
+        logger.error(
+            "DB-GCAL DESYNC: Failed to save booking update in DB for event %s "
+            "after successful GCal patch. DB and GCal are out of sync: %s",
+            event_id,
+            e,
+        )
+        return json.dumps(
+            {"error": "Failed to update booking in database. Please contact support."}
+        )
 
     logger.info("Chatbot rescheduled: email=%s event=%s -> %s", email, event_id, new_start_time)
 
@@ -738,7 +783,9 @@ def _cancel_appointment(session: ConversationSession, event_id: str) -> str:
         return json.dumps({"error": _EMAIL_NOT_COLLECTED_MSG})
 
     try:
-        booking = Booking.objects.get(google_event_id=event_id, email=email)
+        booking = Booking.objects.get(
+            google_event_id=event_id, email=email, provider=session.provider
+        )
     except Booking.DoesNotExist:
         return json.dumps(
             {"error": f"No booking found with event ID {event_id} for email {email}."}
@@ -746,20 +793,33 @@ def _cancel_appointment(session: ConversationSession, event_id: str) -> str:
 
     assert session.provider is not None
     service = get_gcal_service(session.provider)
-    assert session.provider is not None
     ps = ProviderSettings.get_for_provider(session.provider)
     try:
         service.events().delete(calendarId=ps.calendar_id, eventId=event_id).execute()
     except HttpError as exc:
         if exc.resp.status != 410:  # 410 = already gone, treat as success
-            return json.dumps({"error": f"Google Calendar error: {exc}"})
+            logger.warning("Calendar HttpError on cancel event=%s: %s", event_id, exc)
+            return json.dumps(
+                {"error": "Unable to update the calendar for this appointment. Please try again."}
+            )
 
-    booking.status = (
-        BookingStatus.FAILED
-        if booking.status == BookingStatus.PENDING_PAYMENT
-        else BookingStatus.CANCELLED
-    )
-    booking.save(update_fields=["status", "updated_at"])
+    try:
+        booking.status = (
+            BookingStatus.FAILED
+            if booking.status == BookingStatus.PENDING_PAYMENT
+            else BookingStatus.CANCELLED
+        )
+        booking.save(update_fields=["status", "updated_at"])
+    except Exception as e:
+        logger.error(
+            "DB-GCAL DESYNC: Failed to save booking cancellation in DB for event %s "
+            "after successful GCal deletion: %s",
+            event_id,
+            e,
+        )
+        return json.dumps(
+            {"error": "Failed to update booking in database. Please contact support."}
+        )
 
     logger.info("Chatbot cancelled: email=%s event=%s", email, event_id)
     return json.dumps({"status": "cancelled", "google_event_id": event_id})
@@ -800,6 +860,7 @@ def _list_my_appointments(
     bookings = (
         Booking.objects.filter(
             email=email,
+            provider=session.provider,
             start_time__date__gte=start,
             start_time__date__lte=end,
         )
@@ -817,7 +878,11 @@ def _list_my_appointments(
             "google_event_id": b.google_event_id,
             "start_time": b.start_time.astimezone(tz).isoformat(),
             "end_time": b.end_time.astimezone(tz).isoformat(),
-            "reason": b.reason,
+            "reason": (
+                f"<UNTRUSTED_USER_INPUT>"
+                f"{re.sub(r'(?i)<\/?untrusted_user_input[^>]*>', '', b.reason)}"
+                f"</UNTRUSTED_USER_INPUT>"
+            ),
             "status": b.status,
         }
         for b in bookings
@@ -839,7 +904,10 @@ def _initiate_payment(session: ConversationSession, start_time: str, reason: str
     from apps.payments.services.order_service import PaymentOrderService
     from common.api.exceptions import ApplicationError
 
-    start_dt = datetime.fromisoformat(start_time)
+    try:
+        start_dt = datetime.fromisoformat(start_time)
+    except ValueError:
+        return json.dumps({"error": f"Invalid start_time format: {start_time}. Use ISO 8601."})
 
     try:
         if session.provider is None:

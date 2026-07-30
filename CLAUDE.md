@@ -126,7 +126,7 @@
 ### 5.1 Provider
 - The LLM provider is **Groq only**.
 - Use `GROQ_API_KEY` from environment.
-- Model: `moonshotai/kimi-k2` (verify exact ID from Groq docs before use).
+- Model: `openai/gpt-oss-120b` (or override via `GROQ_MODEL` env var).
 - **Do not** introduce `openai`, `anthropic`, or `google.generativeai` SDKs.
 
 ### 5.2 Tool Execution

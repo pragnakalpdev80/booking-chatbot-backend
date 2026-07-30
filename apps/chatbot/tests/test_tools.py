@@ -36,6 +36,7 @@ def session_with_email(admin_user):
 @pytest.fixture
 def booking(db, session_with_email):
     return Booking.objects.create(
+        provider=session_with_email.provider,
         email="user@example.com",
         google_event_id="tool_evt_001",
         start_time=datetime.datetime(2026, 8, 4, 10, 0, tzinfo=datetime.UTC),
@@ -317,6 +318,7 @@ class TestListMyAppointmentsTool:
     def test_list_multiple_bookings_same_email(self, session_with_email):
         for i in range(3):
             Booking.objects.create(
+                provider=session_with_email.provider,
                 email="user@example.com",
                 google_event_id=f"multi_tool_evt_{i}",
                 start_time=datetime.datetime(2026, 8, i + 4, 10, 0, tzinfo=datetime.UTC),
@@ -327,6 +329,7 @@ class TestListMyAppointmentsTool:
 
     def test_list_excludes_cancelled(self, session_with_email):
         Booking.objects.create(
+            provider=session_with_email.provider,
             email="user@example.com",
             google_event_id="cancelled_tool_evt",
             start_time=datetime.datetime(2026, 8, 4, 10, 0, tzinfo=datetime.UTC),

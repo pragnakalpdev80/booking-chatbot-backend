@@ -45,11 +45,10 @@ class PaymentOrderService(BaseService):
                 start_time,
             )
             raise ApplicationError(
-                "EXPIRED_LOCK: The 15-minute reservation for this slot has EXPIRED. "
-                "CRITICAL INSTRUCTION: Do NOT call lock_slot again automatically. "
-                "You MUST inform the user that their 15-minute reservation "
-                "expired, and ask them if they would like to select a new time or check if "
-                "this time is still available.",
+                "EXPIRED_LOCK: The 15-minute reservation for this slot has EXPIRED "
+                "and the slot is no longer held. Inform the user their reservation timed out. "
+                "Ask if they still want this slot and, if so, call lock_slot again to "
+                "re-secure it before proceeding to confirm.",
                 status_code=400,
             )
 
